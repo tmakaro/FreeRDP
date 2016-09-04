@@ -6,6 +6,10 @@
  * Copyright 2010-2011 Vic Lee
  * Copyright 2010-2011 Marc-Andre Moreau <marcandre.moreau@gmail.com>
  *
+ * Myrtille: A native HTML4/5 Remote Desktop Protocol client
+ *
+ * Copyright 2014-2016 Cedric Coste
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -33,6 +37,12 @@
 #include "wf_event.h"
 
 #include <freerdp/event.h>
+
+#pragma region Myrtille
+
+#define TAG CLIENT_TAG("event")
+
+#pragma endregion
 
 static HWND g_focus_hWnd;
 
@@ -346,6 +356,13 @@ LRESULT CALLBACK wf_event_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam
 				y = ps.rcPaint.top;
 				w = ps.rcPaint.right - ps.rcPaint.left + 1;
 				h = ps.rcPaint.bottom - ps.rcPaint.top + 1;
+
+				#pragma region Myrtille
+
+				// debug, if needed
+				//WLog_INFO(TAG, "wf_event_proc: WM_PAINT left:%i, top:%i, right:%i, bottom:%i", ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right, ps.rcPaint.bottom);
+
+				#pragma endregion
 
 				wf_scale_blt(wfc, hdc, x, y, w, h, wfc->primary->hdc, x - wfc->offset_x + wfc->xCurrentScroll, y - wfc->offset_y + wfc->yCurrentScroll, SRCCOPY);
 

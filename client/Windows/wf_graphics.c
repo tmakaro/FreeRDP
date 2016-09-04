@@ -4,6 +4,10 @@
  *
  * Copyright 2010-2011 Marc-Andre Moreau <marcandre.moreau@gmail.com>
  *
+ * Myrtille: A native HTML4/5 Remote Desktop Protocol client
+ *
+ * Copyright 2014-2016 Cedric Coste
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -28,6 +32,12 @@
 
 #include "wf_gdi.h"
 #include "wf_graphics.h"
+
+#pragma region Myrtille
+
+#include "wf_myrtille.h"
+
+#pragma endregion
 
 #define TAG CLIENT_TAG("windows")
 
@@ -279,6 +289,12 @@ void wf_Pointer_Set(wfContext* wfc, rdpPointer* pointer)
 		SetCursor(hCur);
 		wfc->cursor = hCur;
 	}
+
+	#pragma region Myrtille
+
+	wf_myrtille_send_cursor(wfc);
+
+	#pragma endregion
 }
 
 void wf_Pointer_SetNull(wfContext* wfc)

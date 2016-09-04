@@ -7,6 +7,10 @@
  * Copyright 2015 Thincast Technologies GmbH
  * Copyright 2015 DI (FH) Martin Haimberger <martin.haimberger@thincast.com>
  *
+ * Myrtille: A native HTML4/5 Remote Desktop Protocol client
+ *
+ * Copyright 2014-2016 Cedric Coste
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -44,6 +48,12 @@
 #include <Strsafe.h>
 
 #include "wf_cliprdr.h"
+
+#pragma region Myrtille
+
+#include "wf_myrtille.h"
+
+#pragma endregion
 
 #define TAG CLIENT_TAG("windows")
 
@@ -1895,6 +1905,12 @@ static UINT wf_cliprdr_server_format_list(CliprdrClientContext* context,
 	if (!clear_format_map(clipboard))
 		return ERROR_INTERNAL_ERROR;
 
+	#pragma region Myrtille
+
+	bool unicodeTextFormatMapping = false;
+
+	#pragma endregion
+
 	for (i = 0; i < formatList->numFormats; i++)
 	{
 		format = &(formatList->formats[i]);
@@ -1922,7 +1938,24 @@ static UINT wf_cliprdr_server_format_list(CliprdrClientContext* context,
 
 		clipboard->map_size++;
 		map_ensure_capacity(clipboard);
+
+		#pragma region Myrtille
+
+		// ensure the clipboard content can be translated to unicode text
+		// note that it's also possible to restrict freerdp to text only format(s) by sending them into "cliprdr_send_format_list"; but it's more convenient (and anyway necessary) to handle it here...
+		if (mapping->remote_format_id == CF_UNICODETEXT)
+			unicodeTextFormatMapping = true;
+
+		#pragma endregion
 	}
+
+	#pragma region Myrtille
+
+	wfContext* wfc = (wfContext*)context->rdpcontext;
+	if (wfc->settings->MyrtilleSessionId == 0)
+	{
+
+	#pragma endregion
 
 	if (file_transferring(clipboard))
 	{
@@ -1944,6 +1977,22 @@ static UINT wf_cliprdr_server_format_list(CliprdrClientContext* context,
 		if (!CloseClipboard() && GetLastError())
 			return ERROR_INTERNAL_ERROR;
 	}
+	
+	#pragma region Myrtille
+
+	}
+	else
+	{
+		// the remote clipboard content has changed (copy)
+		// invalidate it so that the next clipboard request (paste) will trigger a new content request then save the result
+		// as long as the remote clipboard doesn't change, every request will send the saved content
+		if (unicodeTextFormatMapping)
+			wf_myrtille_reset_clipboard(wfc);
+
+		rc = CHANNEL_RC_OK;
+	}
+
+	#pragma endregion
 
 	return rc;
 }
@@ -1959,8 +2008,34 @@ static UINT wf_cliprdr_server_format_list_response(CliprdrClientContext* context
 	(void)context;
 	(void)formatListResponse;
 
+	#pragma region Myrtille
+
+	/*
+	for some reasons, the clipboard virtual channel sometimes fails
+	if the rdp server is a VM, it may be due to the usage of the VM integrated tools, which synchronizes the VM clipboard (and other things) with the host one, but interferes with the virtual channel while doing it...
+	there is an open freerdp issue about it (using Oracle VirtualBox): https://github.com/FreeRDP/FreeRDP/issues/230
+
+	problem is, if the clipboard channel fails, the current implementation does close the connection and exit
+	it's a bit harsh, so if it happens let's ignore it and keep the connection open (by the way, it may be a lesser/temporary issue which doesn't prevent the clipboard redirection to work...)
+
+	there is also a reported issue with the client->server clipboard transfer: https://github.com/FreeRDP/FreeRDP/issues/3358
+	fortunately, one can use the myrtille "keyboard" button to send some text to the server then copy it there afterward
+	*/
+
+	wfContext* wfc = (wfContext*)context->rdpcontext;
+	if (wfc->settings->MyrtilleSessionId == 0)
+	{
+
+	#pragma endregion
+
 	if (formatListResponse->msgFlags != CB_RESPONSE_OK)
 		return E_FAIL;
+
+	#pragma region Myrtille
+
+	}
+
+	#pragma endregion
 
 	return CHANNEL_RC_OK;
 }
@@ -2226,6 +2301,17 @@ static UINT wf_cliprdr_server_format_data_response(CliprdrClientContext* context
 	if (!SetEvent(clipboard->response_data_event))
 		return ERROR_INTERNAL_ERROR;
 
+	#pragma region Myrtille
+
+	wfContext* wfc = (wfContext*)context->rdpcontext;
+	if (wfc->settings->MyrtilleSessionId != 0)
+	{
+		// remote clipboard content was requested; send the response
+		wf_myrtille_send_clipboard(wfc, data, formatDataResponse->dataLen);
+	}
+
+	#pragma endregion
+
 	return CHANNEL_RC_OK;
 }
 
@@ -2486,8 +2572,37 @@ BOOL wf_cliprdr_init(wfContext* wfc, CliprdrClientContext* cliprdr)
 	if (!(clipboard->req_fevent = CreateEvent(NULL, TRUE, FALSE, _T("request_filecontents_event"))))
 		goto error;
 
+	#pragma region Myrtille
+
+	/*
+	when using myrtille, disable the clipboard thread
+
+	indeed, we don't want to alter the gateway clipboard while multiple instances of freerdp (multiple rdp sessions) may be running
+	first, it would mess with the active user clipboard if freerdp is run interactively (with window)
+	second, if freerdp is run as a process (from Myrtille.Services, windowless), all the freerdp instances will share the same clipboard, resulting in an even bigger mess...
+	thus, only the clipboard virtual channel is used to receive the remote clipboard changes but the local (gateway) clipboard is left unchanged
+
+	it's important to understand how the cipboard works: https://msdn.microsoft.com/en-us/library/cc241084.aspx
+	the common sense would be to think that a remote "copy" operation would transfer the clipboard content, over the network, to the client then update the local clipboard...
+	in fact, it just invalidate the client clipboard so that the next local "paste" operation would request, set then render it
+	*/
+
+	if (wfc->settings->MyrtilleSessionId == 0)
+	{
+
+	#pragma endregion
+
 	if (!(clipboard->thread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE) cliprdr_thread_func, clipboard, 0, NULL)))
 		goto error;
+
+	#pragma region Myrtille
+
+	}
+
+	// the initialization below was missing from the original code (intentionally?)
+	wfc->cliprdr = cliprdr;
+
+	#pragma endregion
 
 	cliprdr->MonitorReady = wf_cliprdr_monitor_ready;
 	cliprdr->ServerCapabilities = wf_cliprdr_server_capabilities;

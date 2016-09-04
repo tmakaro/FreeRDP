@@ -19,6 +19,10 @@ set(MODULE_NAME "wfreerdp-client")
 set(MODULE_PREFIX "FREERDP_CLIENT_WINDOWS_CONTROL")
 
 set(${MODULE_PREFIX}_SRCS
+	# <Myrtille>
+	wf_myrtille.cpp
+	wf_myrtille.h
+	# </Myrtille>
 	wf_gdi.c
 	wf_gdi.h
 	wf_event.c
@@ -94,3 +98,7 @@ else()
 endif()
 
 set_property(TARGET ${MODULE_NAME} PROPERTY FOLDER "Client/Windows")
+
+# <Myrtille>
+include_directories(${OPENSSL_INCLUDE_DIR})
+# </Myrtille>

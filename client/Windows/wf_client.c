@@ -6,6 +6,10 @@
  * Copyright 2010-2011 Vic Lee
  * Copyright 2010-2011 Marc-Andre Moreau <marcandre.moreau@gmail.com>
  *
+ * Myrtille: A native HTML4/5 Remote Desktop Protocol client
+ *
+ * Copyright 2014-2016 Cedric Coste
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -55,6 +59,12 @@
 #include "wf_client.h"
 
 #include "resource.h"
+
+#pragma region Myrtille
+
+#include "wf_myrtille.h"
+
+#pragma endregion
 
 #define TAG CLIENT_TAG("windows")
 
@@ -122,6 +132,12 @@ BOOL wf_sw_end_paint(wfContext* wfc)
 
 		if (wfc->rail)
 			wf_rail_invalidate_region(wfc, &invalidRegion);
+
+		#pragma region Myrtille
+
+		wf_myrtille_send_region(wfc, updateRect);
+
+		#pragma endregion
 	}
 
 	region16_uninit(&invalidRegion);
@@ -169,6 +185,64 @@ BOOL wf_hw_begin_paint(wfContext* wfc)
 
 BOOL wf_hw_end_paint(wfContext* wfc)
 {
+	#pragma region Myrtille
+
+	/*
+	same logic as gdi software rendering, but no need to invalidate region(s) because it's already done into wf_gdi.c/wf_invalidate_region
+	
+	TOCHECK: on a side note, there may be a slight issue with region(s) invalidation, following update(s), and the subsequent necessary repaint
+	prior to this version (now a freerdp master fork), myrtille was using freerdp 0.8.2; each "l_ui_end_update" was followed by a WM_PAINT message on the same coordinates
+	the objective was to consolidate all the updated region(s) within a given area/timeframe in order to do only 1 repaint afterward (min(left,top)/max(right,bottom))
+	that is, a diplay update buffer...
+
+	it's important for myrtille because it saves cpu and bandwidth; 1 image only to process is faster than several and it compresses better
+
+	actually, there are sometimes 2 (or more) updates processed here prior to the WM_PAINT event (into wf_event.c); fortunaly, it doesn't occurs often and shouldn't be noticeable...
+	*/
+
+	int i;
+	int ninvalid;
+	RECT updateRect;
+	HGDI_RGN cinvalid;
+	REGION16 invalidRegion;
+	RECTANGLE_16 invalidRect;
+	const RECTANGLE_16* extents;
+	rdpContext* context = (rdpContext*)wfc;
+
+	ninvalid = wfc->hdc->hwnd->ninvalid;
+	cinvalid = wfc->hdc->hwnd->cinvalid;
+
+	if (ninvalid < 1)
+		return TRUE;
+
+	region16_init(&invalidRegion);
+
+	for (i = 0; i < ninvalid; i++)
+	{
+		invalidRect.left = cinvalid[i].x;
+		invalidRect.top = cinvalid[i].y;
+		invalidRect.right = cinvalid[i].x + cinvalid[i].w;
+		invalidRect.bottom = cinvalid[i].y + cinvalid[i].h;
+
+		region16_union_rect(&invalidRegion, &invalidRegion, &invalidRect);
+	}
+
+	if (!region16_is_empty(&invalidRegion))
+	{
+		extents = region16_extents(&invalidRegion);
+
+		updateRect.left = extents->left;
+		updateRect.top = extents->top;
+		updateRect.right = extents->right;
+		updateRect.bottom = extents->bottom;
+
+		wf_myrtille_send_region(wfc, updateRect);
+	}
+
+	region16_uninit(&invalidRegion);
+
+	#pragma endregion
+
 	return TRUE;
 }
 
@@ -408,6 +482,16 @@ BOOL wf_post_connect(freerdp* instance)
 		}
 	}
 
+	#pragma region Myrtille
+
+	WLog_INFO(TAG, "GDI rendering: %s", settings->SoftwareGdi ? "software" : "hardware");
+	WLog_INFO(TAG, "Clipboard redirect: %s", settings->RedirectClipboard ? "on" : "off");
+
+	if (wfc->settings->MyrtilleSessionId == 0 || wfc->settings->MyrtilleShowWindow)
+	{
+
+	#pragma endregion
+
 	if (settings->WindowTitle != NULL)
 		_snwprintf(lpWindowName, ARRAYSIZE(lpWindowName), L"%S", settings->WindowTitle);
 	else if (settings->ServerPort == 3389)
@@ -437,16 +521,41 @@ BOOL wf_post_connect(freerdp* instance)
 
 	wf_add_system_menu(wfc);
 
+	#pragma region Myrtille
+
+	}
+
+	#pragma endregion
+
 	BitBlt(wfc->primary->hdc, 0, 0, wfc->width, wfc->height, NULL, 0, 0, BLACKNESS);
 	wfc->drawing = wfc->primary;
+
+	#pragma region Myrtille
+
+	if (wfc->settings->MyrtilleSessionId == 0 || wfc->settings->MyrtilleShowWindow)
+	{
+
+	#pragma endregion
 
 	EventArgsInit(&e, "wfreerdp");
 	e.embed = FALSE;
 	e.handle = (void*) wfc->hwnd;
 	PubSub_OnEmbedWindow(context->pubSub, context, &e);
 
-	ShowWindow(wfc->hwnd, SW_SHOWNORMAL);
+	#pragma region Myrtille
+
+	// don't activate/focus the window if using myrtille
+	ShowWindow(wfc->hwnd, wfc->settings->MyrtilleSessionId == 0 ? SW_SHOWNORMAL : SW_SHOWNOACTIVATE);
+
+	#pragma endregion
+
 	UpdateWindow(wfc->hwnd);
+
+	#pragma region Myrtille
+
+	}
+
+	#pragma endregion
 
 	if (settings->SoftwareGdi)
 	{
@@ -476,8 +585,21 @@ BOOL wf_post_connect(freerdp* instance)
 	if (freerdp_channels_post_connect(context->channels, instance) != CHANNEL_RC_OK)
 		return FALSE;
 
+	#pragma region Myrtille
+
+	if (wfc->settings->MyrtilleSessionId == 0 || wfc->settings->MyrtilleShowWindow)
+	{
+
+	#pragma endregion
+
 	if (wfc->fullscreen)
 		floatbar_window_create(wfc);
+
+	#pragma region Myrtille
+
+	}
+
+	#pragma endregion
 
 	return TRUE;
 }
@@ -744,15 +866,35 @@ DWORD WINAPI wf_client_thread(LPVOID lpParam)
 		}
 	}
 
+	#pragma region Myrtille
+
+	wf_myrtille_connect(wfc);
+
+	#pragma endregion
+
 	while (1)
 	{
 		nCount = 0;
+
+		#pragma region Myrtille
+
+		// don't focus the window if using myrtille (even if show window is enabled)
+		if (wfc->settings->MyrtilleSessionId == 0)
+		{
+
+		#pragma endregion
 
 		if (freerdp_focus_required(instance))
 		{
 			wf_event_focus_in(wfc);
 			wf_event_focus_in(wfc);
 		}
+
+		#pragma region Myrtille
+
+		}
+
+		#pragma endregion
 
 		if (!async_transport)
 		{
@@ -1101,6 +1243,15 @@ int wfreerdp_client_start(rdpContext* context)
 	wfContext* wfc = (wfContext*) context;
 	freerdp* instance = context->instance;
 
+	#pragma region Myrtille
+
+	wf_myrtille_start(wfc);
+
+	if (wfc->settings->MyrtilleSessionId == 0 || wfc->settings->MyrtilleShowWindow)
+	{
+
+	#pragma endregion
+
 	hInstance = GetModuleHandle(NULL);
 	hWndParent = (HWND) instance->settings->ParentWindowId;
 	instance->settings->EmbeddedWindow = (hWndParent) ? TRUE : FALSE;
@@ -1130,6 +1281,12 @@ int wfreerdp_client_start(rdpContext* context)
 	if (!wfc->keyboardThread)
 		return -1;
 
+	#pragma region Myrtille
+
+	}
+
+	#pragma endregion
+
 	if (!freerdp_client_load_addins(context->channels, instance->settings))
 		return -1;
 
@@ -1155,6 +1312,13 @@ int wfreerdp_client_stop(rdpContext* context)
 		wfc->mainThreadId = 0;
 	}
 
+	#pragma region Myrtille
+
+	if (wfc->settings->MyrtilleSessionId == 0 || wfc->settings->MyrtilleShowWindow)
+	{
+
+	#pragma endregion
+
 	if (wfc->keyboardThread)
 	{
 		PostThreadMessage(wfc->keyboardThreadId, WM_QUIT, 0, 0);
@@ -1165,6 +1329,14 @@ int wfreerdp_client_stop(rdpContext* context)
 		wfc->keyboardThread = NULL;
 		wfc->keyboardThreadId = 0;
 	}
+
+	#pragma region Myrtille
+
+	}
+
+	wf_myrtille_stop(wfc);
+
+	#pragma endregion
 
 	return 0;
 }

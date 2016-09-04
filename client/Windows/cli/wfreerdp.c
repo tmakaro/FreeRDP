@@ -63,6 +63,13 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	RdpClientEntry(&clientEntryPoints);
 
+	#pragma region Myrtille
+
+	//if debugging, give time to attach debugger to process
+	//Sleep(10000);
+
+	#pragma endregion
+
 	context = freerdp_client_context_new(&clientEntryPoints);
 	if (!context)
 		return -1;
