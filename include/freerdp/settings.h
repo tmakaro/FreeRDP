@@ -6,6 +6,10 @@
  * Copyright 2010-2012 Marc-Andre Moreau <marcandre.moreau@gmail.com>
  * Copyright 2016 Armin Novak <armin.novak@gmail.com>
  *
+ * Myrtille: A native HTML4/5 Remote Desktop Protocol client
+ *
+ * Copyright 2014-2016 Cedric Coste
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -1421,6 +1425,20 @@ struct rdp_settings
 	ALIGN64 struct rdp_ext_set extensions[16]; /*  */
 
 	ALIGN64 BYTE* SettingsModified; /* byte array marking fields that have been modified from their default value */
+
+	#pragma region Myrtille
+
+	// remote session id
+	int MyrtilleSessionId;
+
+	// process window
+	bool MyrtilleShowWindow;
+
+	// debug log
+	bool MyrtilleDebugLog;
+
+	#pragma endregion
+
 };
 typedef struct rdp_settings rdpSettings;
 

@@ -6,6 +6,10 @@
  * Copyright 2014 Norbert Federa <norbert.federa@thincast.com>
  * Copyright 2016 Armin Novak <armin.novak@gmail.com>
  *
+ * Myrtille: A native HTML4/5 Remote Desktop Protocol client
+ *
+ * Copyright 2014-2016 Cedric Coste
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -183,6 +187,15 @@ static COMMAND_LINE_ARGUMENT_A args[] =
 	{ "scale", COMMAND_LINE_VALUE_REQUIRED, "<scale amount (%%)>", "100", NULL, -1, NULL, "Scaling factor of the display (value of 100, 140, or 180)" },
 	{ "scale-desktop", COMMAND_LINE_VALUE_REQUIRED, "<scale amount (%%)>", "100", NULL, -1, NULL, "Scaling factor for desktop applications (value between 100 and 500)" },
 	{ "scale-device", COMMAND_LINE_VALUE_REQUIRED, "<scale amount (%%)>", "100", NULL, -1, NULL, "Scaling factor for app store applications (100, 140, or 180)" },
+	
+	#pragma region Myrtille
+
+	{ "myrtille-sid", COMMAND_LINE_VALUE_OPTIONAL, "<myrtille>", 0, NULL, -1, NULL, "Remote session id. 0 to disable" },
+	{ "myrtille-window", COMMAND_LINE_VALUE_BOOL, "<myrtille>", false, NULL, -1, NULL, "Run freerdp as a process only (no window/console)" },
+	{ "myrtille-log", COMMAND_LINE_VALUE_BOOL, "<myrtille>", false, NULL, -1, NULL, "Write debug output to a log gile, stamped with PID" },
+
+	#pragma endregion
+
 	{ NULL, 0, NULL, NULL, NULL, -1, NULL, NULL }
 };
 
@@ -2408,6 +2421,24 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 				return COMMAND_LINE_ERROR;
 			}
 		}
+		
+		#pragma region Myrtille
+
+		CommandLineSwitchCase(arg, "myrtille-sid")
+		{
+			settings->MyrtilleSessionId = atoi(arg->Value);
+		}
+		CommandLineSwitchCase(arg, "myrtille-window")
+		{
+			settings->MyrtilleShowWindow = arg->Value ? true : false;
+		}
+		CommandLineSwitchCase(arg, "myrtille-log")
+		{
+			settings->MyrtilleDebugLog = arg->Value ? true : false;
+		}
+
+		#pragma endregion
+
 		CommandLineSwitchDefault(arg)
 		{
 		}
