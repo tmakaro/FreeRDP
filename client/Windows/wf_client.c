@@ -193,7 +193,7 @@ BOOL wf_hw_end_paint(wfContext* wfc)
 	TOCHECK: on a side note, there may be a slight issue with region(s) invalidation, following update(s), and the subsequent necessary repaint
 	prior to this version (now a freerdp master fork), myrtille was using freerdp 0.8.2; each "l_ui_end_update" was followed by a WM_PAINT message on the same coordinates
 	the objective was to consolidate all the updated region(s) within a given area/timeframe in order to do only 1 repaint afterward (min(left,top)/max(right,bottom))
-	that is, a diplay update buffer...
+	that is, a display update buffer...
 
 	it's important for myrtille because it saves cpu and bandwidth; 1 image only to process is faster than several and it compresses better
 
@@ -1173,10 +1173,24 @@ BOOL wfreerdp_client_global_init(void)
 
 	if (!getenv("HOME"))
 	{
+		#pragma region Myrtille
+
+		// if myrtille is running as a service, the freerdp process is running in non user interactive mode (windowless); thus, there is no user environment variables...
+		if (getenv("HOMEDRIVE") != NULL && getenv("HOMEPATH") != NULL)
+		{
+
+		#pragma endregion
+
 		char home[MAX_PATH * 2] = "HOME=";
 		strcat(home, getenv("HOMEDRIVE"));
 		strcat(home, getenv("HOMEPATH"));
 		_putenv(home);
+
+		#pragma region Myrtille
+
+		}
+
+		#pragma endregion
 	}
 
 	WSAStartup(0x101, &wsaData);

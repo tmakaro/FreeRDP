@@ -215,7 +215,7 @@ void wf_myrtille_start(wfContext* wfc)
 	//webpConfig.alpha_compression = 0;
 	//webpConfig.partition_limit = 0;
 
-	//myrtille->->webpConfig = webpConfig;
+	//myrtille->webpConfig = webpConfig;
 }
 
 void wf_myrtille_stop(wfContext* wfc)
