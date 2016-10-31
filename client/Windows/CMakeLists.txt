@@ -84,6 +84,10 @@ set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} freerdp-client)
 set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} winpr freerdp)
 target_link_libraries(${MODULE_NAME} ${${MODULE_PREFIX}_LIBS})
 
+# <Myrtille>
+target_link_libraries(${MODULE_NAME} ..\\..\\webp\\lib\\libwebp)
+# </Myrtille>
+
 if(WITH_CLIENT_INTERFACE)
 	install(TARGETS ${MODULE_NAME} DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries)
 	if (WITH_DEBUG_SYMBOLS AND MSVC AND BUILD_SHARED_LIBS)

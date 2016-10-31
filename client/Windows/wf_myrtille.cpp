@@ -35,10 +35,9 @@
 #pragma comment(lib, "gdiplus")
 using namespace Gdiplus;
 
- //#include "webp/encode.h"
- //#pragma comment(lib, "libwebp.lib")
- //const char* webpFilename;	// debug
-
+#include "webp/include/encode.h"
+#pragma comment(lib, "libwebp.lib")
+ 
 #include <openssl/bio.h>
 #include <openssl/evp.h>
 #include <openssl/buffer.h>
@@ -59,8 +58,8 @@ void saveImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int format, int qu
 void sendImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int posX, int posY, int width, int height, int format, int quality, IStream* stream, int size, bool fullscreen);
 char* unbase64(char* b64buffer, int length);
 
-//void WebPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, IStream* stream, float quality, bool fullscreen);
-//static int WebPWriter(const uint8_t* data, size_t data_size, const WebPPicture* const pic);
+void WebPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, IStream* stream, float quality, bool fullscreen);
+static int WebPWriter(const uint8_t* data, size_t data_size, const WebPPicture* const pic);
 
 DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter);
 DWORD WINAPI SendFullscreen(LPVOID lpParameter);
@@ -138,7 +137,7 @@ struct wf_myrtille
 	EncoderParameters encoderParameters;
 
 	// WebP
-	//WebPConfig webpConfig;
+	WebPConfig webpConfig;
 };
 typedef struct wf_myrtille wfMyrtille;
 
@@ -192,9 +191,9 @@ void wf_myrtille_start(wfContext* wfc)
 	myrtille->encoderParameters = encoderParameters;
 
 	// WebP
-	//float webpQuality = IMAGE_QUALITY_HIGH;
-	//WebPConfig webpConfig;
-	//WebPConfigPreset(&webpConfig, WEBP_PRESET_PICTURE, webpQuality);
+	float webpQuality = IMAGE_QUALITY_HIGH;
+	WebPConfig webpConfig;
+	WebPConfigPreset(&webpConfig, WEBP_PRESET_PICTURE, webpQuality);
 
 	// override preset settings below, if needed
 
@@ -215,7 +214,7 @@ void wf_myrtille_start(wfContext* wfc)
 	//webpConfig.alpha_compression = 0;
 	//webpConfig.partition_limit = 0;
 
-	//myrtille->webpConfig = webpConfig;
+	myrtille->webpConfig = webpConfig;
 }
 
 void wf_myrtille_stop(wfContext* wfc)
@@ -973,7 +972,7 @@ void processImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int left, int top, int r
 		// --------------------------- convert the bitmap into WEBP -------------------------------
 
 		CreateStreamOnHGlobal(NULL, TRUE, &webpStream);
-		//WebPEncoder(wfc, bmp, webpStream, quality, fullscreen);
+		WebPEncoder(wfc, bmp, myrtille->imageIdx + 1, webpStream, quality, fullscreen);
 
 		webpStream->Stat(&statstg, STATFLAG_DEFAULT);
 		ULONG webpSize = (ULONG)statstg.cbSize.LowPart;
@@ -1037,17 +1036,17 @@ void saveImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int format, int qu
 
 		switch (format)
 		{
-		case IMAGE_FORMAT_PNG:
-			ss << (fullscreen ? "\\screen_" : "\\region_") << idx << ".png";
-			break;
+			case IMAGE_FORMAT_PNG:
+				ss << (fullscreen ? "\\screen_" : "\\region_") << idx << ".png";
+				break;
 
-		case IMAGE_FORMAT_JPEG:
-			ss << (fullscreen ? "\\screen_" : "\\region_") << idx << "_" << quality << ".jpg";
-			break;
+			case IMAGE_FORMAT_JPEG:
+				ss << (fullscreen ? "\\screen_" : "\\region_") << idx << "_" << quality << ".jpg";
+				break;
 
-		case IMAGE_FORMAT_CUR:
-			ss << "\\cursor_" << idx << ".png";
-			break;
+			case IMAGE_FORMAT_CUR:
+				ss << "\\cursor_" << idx << ".png";
+				break;
 		}
 
 		std::string s = ss.str();
@@ -1056,15 +1055,15 @@ void saveImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int format, int qu
 
 		switch (format)
 		{
-		case IMAGE_FORMAT_PNG:
-		case IMAGE_FORMAT_CUR:
-			bmp->Save(filename, &myrtille->pngClsid);
-			break;
+			case IMAGE_FORMAT_PNG:
+			case IMAGE_FORMAT_CUR:
+				bmp->Save(filename, &myrtille->pngClsid);
+				break;
 
-		case IMAGE_FORMAT_JPEG:
-			myrtille->encoderParameters.Parameter[0].Value = &quality;
-			bmp->Save(filename, &myrtille->jpgClsid, &myrtille->encoderParameters);
-			break;
+			case IMAGE_FORMAT_JPEG:
+				myrtille->encoderParameters.Parameter[0].Value = &quality;
+				bmp->Save(filename, &myrtille->jpgClsid, &myrtille->encoderParameters);
+				break;
 		}
 	}
 }
@@ -1111,29 +1110,29 @@ void sendImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int posX, int posY
 	{
 		switch (GetLastError())
 		{
-		case ERROR_INVALID_HANDLE:
-			WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_INVALID_HANDLE");
-			break;
+			case ERROR_INVALID_HANDLE:
+				WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_INVALID_HANDLE");
+				break;
 
-		case ERROR_PIPE_NOT_CONNECTED:
-			WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_PIPE_NOT_CONNECTED");
-			break;
+			case ERROR_PIPE_NOT_CONNECTED:
+				WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_PIPE_NOT_CONNECTED");
+				break;
 
-		case ERROR_PIPE_BUSY:
-			WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_PIPE_BUSY");
-			break;
+			case ERROR_PIPE_BUSY:
+				WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_PIPE_BUSY");
+				break;
 
-		case ERROR_BAD_PIPE:
-			WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_BAD_PIPE");
-			break;
+			case ERROR_BAD_PIPE:
+				WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_BAD_PIPE");
+				break;
 
-		case ERROR_BROKEN_PIPE:
-			WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_BROKEN_PIPE");
-			break;
+			case ERROR_BROKEN_PIPE:
+				WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_BROKEN_PIPE");
+				break;
 
-		default:
-			WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error %d", GetLastError());
-			break;
+			default:
+				WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error %d", GetLastError());
+				break;
 		}
 
 		// pipe problem; exit
@@ -1185,8 +1184,7 @@ char* unbase64(char* b64buffer, int length)
 	return msg;
 }
 
-/*
-void WebPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, IStream* stream, float quality, bool fullscreen)
+void WebPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, IStream* stream, float quality, bool fullscreen)
 {
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
@@ -1194,15 +1192,17 @@ void WebPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, IStream* stream, float qu
 
 	if (WebPPictureInit(&webpPic))
 	{
+		webpPic.user_data = NULL;
+
 		// debug
 
-		//if (!createRemoteSessionDirectory(wfc))
-		//	return;
-
-		//std::stringstream ss;
-		//ss << ".\\remotesession_" << myrtille->settings->MyrtilleSessionId << (fullscreen ? "\\screen_" : "\\region_") << imageIdx << "_" << quality << ".webp";
-		//std::string s = ss.str();
-		//webpFilename = s.c_str();
+		//std::string imgDirectoryPath = createRemoteSessionDirectory(wfc);
+		//if (imgDirectoryPath != "")
+		//{
+		//	std::stringstream ss;
+		//	ss << imgDirectoryPath << (fullscreen ? "\\screen_" : "\\region_") << idx << "_" << quality << ".webp";
+		//	webpPic.user_data = new std::string(ss.str());
+		//}
 
 		webpPic.custom_ptr = (void*)stream;
 		webpPic.writer = WebPWriter;
@@ -1234,6 +1234,9 @@ void WebPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, IStream* stream, float qu
 		delete bmpData;
 		bmpData = NULL;
 
+		if (webpPic.user_data != NULL)
+			delete webpPic.user_data;
+
 		WebPPictureFree(&webpPic);
 	}
 }
@@ -1247,15 +1250,18 @@ static int WebPWriter(const uint8_t* data, size_t data_size, const WebPPicture* 
 
 	// debug
 
-	//FILE* file = fopen(webpFilename, "ab");
-	//if (file != NULL)
+	//if (pic->user_data != NULL)
 	//{
-	//	fwrite(data, 1, data_size, file);
-	//	fclose(file);
+	//	std::string &filename = *(std::string*)pic->user_data;
+	//	FILE* file = fopen(filename.c_str(), "ab");
+	//	if (file != NULL)
+	//	{
+	//		fwrite(data, 1, data_size, file);
+	//		fclose(file);
+	//	}
 	//}
 
 	return bytesWritten == data_size ? 1 : 0;
 }
-*/
 
 #pragma endregion
