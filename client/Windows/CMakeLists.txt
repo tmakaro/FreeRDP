@@ -85,7 +85,7 @@ set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} winpr freerdp)
 target_link_libraries(${MODULE_NAME} ${${MODULE_PREFIX}_LIBS})
 
 # <Myrtille>
-target_link_libraries(${MODULE_NAME} ..\\..\\webp\\lib\\libwebp)
+target_link_libraries(${MODULE_NAME} ${CMAKE_SOURCE_DIR}/webp/lib/libwebp.lib)
 # </Myrtille>
 
 if(WITH_CLIENT_INTERFACE)
@@ -104,5 +104,6 @@ endif()
 set_property(TARGET ${MODULE_NAME} PROPERTY FOLDER "Client/Windows")
 
 # <Myrtille>
+include_directories(${CMAKE_SOURCE_DIR}/webp/include)
 include_directories(${OPENSSL_INCLUDE_DIR})
 # </Myrtille>

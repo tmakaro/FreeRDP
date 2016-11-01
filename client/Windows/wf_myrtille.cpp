@@ -35,7 +35,7 @@
 #pragma comment(lib, "gdiplus")
 using namespace Gdiplus;
 
-#include "webp/include/encode.h"
+#include "encode.h"
 #pragma comment(lib, "libwebp.lib")
  
 #include <openssl/bio.h>
