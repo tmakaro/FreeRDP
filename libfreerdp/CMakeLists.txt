@@ -108,7 +108,6 @@ set(CODEC_SRCS
 	codec/rfx_constants.h
 	codec/rfx_decode.c
 	codec/rfx_decode.h
-	codec/rfx_differential.c
 	codec/rfx_differential.h
 	codec/rfx_dwt.c
 	codec/rfx_dwt.h
@@ -177,11 +176,10 @@ if(WITH_OPENH264)
 	freerdp_library_add(${OPENH264_LIBRARIES})
 endif()
 
-if(WITH_LIBAVCODEC)
+if(WITH_FFMPEG)
 	freerdp_definition_add(-DWITH_LIBAVCODEC)
-	find_library(LIBAVCODEC_LIB avcodec)
-	find_library(LIBAVUTIL_LIB avutil)
-	freerdp_library_add(${LIBAVCODEC_LIB} ${LIBAVUTIL_LIB})
+	freerdp_include_directory_add(${FFMPEG_INCLUDE_DIRS})
+	freerdp_library_add(${FFMPEG_LIBRARIES})
 endif()
 
 freerdp_module_add(${CODEC_SRCS})
@@ -195,7 +193,6 @@ endif()
 # primitives
 
 set(PRIMITIVES_SRCS
-	primitives/prim_16to32bpp.c
 	primitives/prim_add.c
 	primitives/prim_andor.c
 	primitives/prim_alphaComp.c
@@ -210,7 +207,6 @@ set(PRIMITIVES_SRCS
 	primitives/prim_internal.h)
 
 set(PRIMITIVES_OPT_SRCS
-	primitives/prim_16to32bpp_opt.c
 	primitives/prim_add_opt.c
 	primitives/prim_andor_opt.c
 	primitives/prim_alphaComp_opt.c
@@ -294,6 +290,7 @@ add_library(${MODULE_NAME} ${LIBFREERDP_SRCS})
 add_definitions(${LIBFREERDP_DEFINITIONS})
 
 set_target_properties(${MODULE_NAME} PROPERTIES LINKER_LANGUAGE C)
+set_target_properties(${MODULE_NAME} PROPERTIES OUTPUT_NAME ${MODULE_NAME}${FREERDP_VERSION_MAJOR})
 
 if (WITH_LIBRARY_VERSIONING)
     set_target_properties(${MODULE_NAME} PROPERTIES VERSION ${FREERDP_VERSION} SOVERSION ${FREERDP_API_VERSION})
@@ -303,7 +300,8 @@ endif()
 target_link_libraries(${MODULE_NAME} ${PRIVATE_KEYWORD} ${LIBFREERDP_LIBS} winpr)
 install(TARGETS ${MODULE_NAME} DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries EXPORT FreeRDPTargets)
 if (WITH_DEBUG_SYMBOLS AND MSVC AND BUILD_SHARED_LIBS)
-    install(FILES ${CMAKE_PDB_BINARY_DIR}/${MODULE_NAME}.pdb DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT symbols)
+    get_target_property(OUTPUT_FILENAME ${MODULE_NAME} OUTPUT_NAME)
+    install(FILES ${CMAKE_PDB_BINARY_DIR}/${OUTPUT_FILENAME}.pdb DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT symbols)
 endif()
 
 set_property(TARGET ${MODULE_NAME} PROPERTY FOLDER "FreeRDP/libfreerdp")

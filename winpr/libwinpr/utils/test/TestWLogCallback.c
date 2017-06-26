@@ -1,4 +1,3 @@
-
 #include <winpr/crt.h>
 #include <winpr/tchar.h>
 #include <winpr/path.h>
@@ -6,7 +5,7 @@
 
 typedef struct 
 {
-	int level;
+	UINT32 level;
 	char *msg;
 	char *channel;
 } test_t;

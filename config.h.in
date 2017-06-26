@@ -53,7 +53,7 @@
 /* Plugins */
 #cmakedefine BUILTIN_CHANNELS
 #cmakedefine WITH_RDPDR
-
+#cmakedefine WITH_KRB5
 
 /* Debug */
 #cmakedefine WITH_DEBUG_CERTIFICATE
@@ -62,17 +62,16 @@
 #cmakedefine WITH_DEBUG_CLIPRDR
 #cmakedefine WITH_DEBUG_DVC
 #cmakedefine WITH_DEBUG_TSMF
-#cmakedefine WITH_DEBUG_GDI
 #cmakedefine WITH_DEBUG_KBD
 #cmakedefine WITH_DEBUG_LICENSE
 #cmakedefine WITH_DEBUG_NEGO
 #cmakedefine WITH_DEBUG_NLA
 #cmakedefine WITH_DEBUG_NTLM
 #cmakedefine WITH_DEBUG_TSG
-#cmakedefine WITH_DEBUG_ORDERS
 #cmakedefine WITH_DEBUG_RAIL
 #cmakedefine WITH_DEBUG_RDP
 #cmakedefine WITH_DEBUG_REDIR
+#cmakedefine WITH_DEBUG_RDPDR
 #cmakedefine WITH_DEBUG_RFX
 #cmakedefine WITH_DEBUG_SCARD
 #cmakedefine WITH_DEBUG_SND

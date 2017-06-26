@@ -26,6 +26,7 @@
 #include <winpr/synch.h>
 #include <winpr/ssl.h>
 #include <winpr/thread.h>
+#include <winpr/crypto.h>
 
 #ifdef WITH_OPENSSL
 
@@ -35,9 +36,21 @@
 #include "../log.h"
 #define TAG WINPR_TAG("utils.ssl")
 
+static BOOL g_winpr_openssl_initialized_by_winpr = FALSE;
+
+
+/**
+ * Note from OpenSSL 1.1.0 "CHANGES":
+ * OpenSSL now uses a new threading API. It is no longer necessary to
+ * set locking callbacks to use OpenSSL in a multi-threaded environment.
+ */
+
+#if (OPENSSL_VERSION_NUMBER < 0x10100000L) || defined(LIBRESSL_VERSION_NUMBER)
+
+#define WINPR_OPENSSL_LOCKING_REQUIRED 1
+
 static int g_winpr_openssl_num_locks = 0;
 static HANDLE* g_winpr_openssl_locks = NULL;
-static BOOL g_winpr_openssl_initialized_by_winpr = FALSE;
 
 struct CRYPTO_dynlock_value
 {
@@ -220,6 +233,9 @@ static BOOL _winpr_openssl_cleanup_locking(void)
 	return TRUE;
 }
 
+#endif /* OpenSSL < 1.1.0 */
+
+
 static BOOL CALLBACK _winpr_openssl_initialize(PINIT_ONCE once, PVOID param, PVOID* context)
 {
 	DWORD flags = param ? *(PDWORD)param : WINPR_SSL_INIT_DEFAULT;
@@ -229,6 +245,7 @@ static BOOL CALLBACK _winpr_openssl_initialize(PINIT_ONCE once, PVOID param, PVO
 		return TRUE;
 	}
 
+#ifdef WINPR_OPENSSL_LOCKING_REQUIRED
 	if (flags & WINPR_SSL_INIT_ENABLE_LOCKING)
 	{
 		if (!_winpr_openssl_initialize_locking())
@@ -236,11 +253,22 @@ static BOOL CALLBACK _winpr_openssl_initialize(PINIT_ONCE once, PVOID param, PVO
 			return FALSE;
 		}
 	}
-
+#endif
 	/* SSL_load_error_strings() is void */
+#if (OPENSSL_VERSION_NUMBER < 0x10100000L)
 	SSL_load_error_strings();
 	/* SSL_library_init() always returns "1" */
 	SSL_library_init();
+	OpenSSL_add_all_digests();
+	OpenSSL_add_all_ciphers();
+#else
+	if (OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS |
+				OPENSSL_INIT_LOAD_CRYPTO_STRINGS |
+				OPENSSL_INIT_ADD_ALL_CIPHERS |
+				OPENSSL_INIT_ADD_ALL_DIGESTS |
+				OPENSSL_INIT_ENGINE_ALL_BUILTIN, NULL) != 1)
+		return FALSE;
+#endif
 	g_winpr_openssl_initialized_by_winpr = TRUE;
 	return TRUE;
 }
@@ -265,13 +293,18 @@ BOOL winpr_CleanupSSL(DWORD flags)
 		}
 
 		g_winpr_openssl_initialized_by_winpr = FALSE;
+#ifdef WINPR_OPENSSL_LOCKING_REQUIRED
 		_winpr_openssl_cleanup_locking();
+#endif
+#if (OPENSSL_VERSION_NUMBER < 0x10100000L)
 		CRYPTO_cleanup_all_ex_data();
 		ERR_free_strings();
 		EVP_cleanup();
+#endif
 		flags |= WINPR_SSL_CLEANUP_THREAD;
 	}
 
+#ifdef WINPR_OPENSSL_LOCKING_REQUIRED
 	if (flags & WINPR_SSL_CLEANUP_THREAD)
 	{
 #if (OPENSSL_VERSION_NUMBER < 0x10000000L)
@@ -280,7 +313,7 @@ BOOL winpr_CleanupSSL(DWORD flags)
 		ERR_remove_thread_state(NULL);
 #endif
 	}
-
+#endif
 	return TRUE;
 }
 

@@ -24,6 +24,7 @@
 #endif
 
 #include <winpr/crt.h>
+#include <winpr/platform.h>
 #include <winpr/error.h>
 
 #include <winpr/environment.h>
@@ -154,7 +155,8 @@ DWORD GetEnvironmentVariableA(LPCSTR lpName, LPSTR lpBuffer, DWORD nSize)
 	if ((length + 1 > nSize) || (!lpBuffer))
 		return length + 1;
 
-	CopyMemory(lpBuffer, env, length + 1);
+	CopyMemory(lpBuffer, env, length);
+	lpBuffer[length] = '\0';
 
 	return length;
 #else

@@ -7,6 +7,8 @@
 #include <Functiondiscoverykeys_devpkey.h>
 #include <Audioclient.h>
 
+#define TAG SERVER_TAG("windows")
+
 //#define REFTIMES_PER_SEC  10000000
 //#define REFTIMES_PER_MILLISEC  10000
 
@@ -83,7 +85,7 @@ int wf_wasapi_get_device_string(LPWSTR pattern, LPWSTR * deviceStr)
 	}
 
 	pCollection->lpVtbl->GetCount(pCollection, &count);
-	WLog_INFO(TAG, "Num endpoints: %d", count);
+	WLog_INFO(TAG, "Num endpoints: %u", count);
 
 	if (count == 0)
 	{
@@ -99,7 +101,7 @@ int wf_wasapi_get_device_string(LPWSTR pattern, LPWSTR * deviceStr)
 		hr = pCollection->lpVtbl->Item(pCollection, i, &pEndpoint);
 		if ( FAILED(hr) )
 		{
-			WLog_ERR(TAG, "Failed to get endpoint %d", i);
+			WLog_ERR(TAG, "Failed to get endpoint %u", i);
 			exit(1);
 		}
 

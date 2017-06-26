@@ -26,7 +26,7 @@ static int start_threads(DWORD count, HANDLE *threads)
 
 		if (!threads[i])
 		{
-			printf("CreateThread [%i] failure\n", i);
+			printf("CreateThread [%"PRIu32"] failure\n", i);
 			return -1;
 		}
 	}
@@ -42,7 +42,7 @@ static int close_threads(DWORD count, HANDLE *threads)
 	{
 		if (!CloseHandle(threads[i]))
 		{
-			printf("CloseHandle [%d] failure\n", i);
+			printf("CloseHandle [%"PRIu32"] failure\n", i);
 			return -1;
 		}
 	}
@@ -121,6 +121,9 @@ int TestSynchMultipleThreads(int argc, char *argv[])
 	if (close_threads(THREADS, threads))
 		return -1;
 
+	if (rc < 0)
+		return rc;
+
 	/* WaitOne, timeout, multiple joins */
 	if (start_threads(THREADS, threads))
 		return -1;
@@ -142,6 +145,9 @@ int TestSynchMultipleThreads(int argc, char *argv[])
 
 	if (close_threads(THREADS, threads))
 		return -1;
+
+	if (rc < 0)
+		return rc;
 
 	/* Thread detach test */
 	if (start_threads(THREADS, threads))
