@@ -65,7 +65,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	#pragma region Myrtille
 
-	//if debugging, give time to attach debugger to process
+	// if debugging, give time to attach debugger to process
 	//Sleep(10000);
 
 	#pragma endregion
