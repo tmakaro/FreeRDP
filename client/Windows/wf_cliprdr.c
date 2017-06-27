@@ -1980,8 +1980,7 @@ static UINT wf_cliprdr_server_format_list(CliprdrClientContext* context,
 
 	#pragma region Myrtille
 
-	wfContext* wfc = (wfContext*)context->rdpcontext;
-	if (wfc->settings->MyrtilleSessionId == 0)
+	if (context->rdpcontext->settings->MyrtilleSessionId == 0)
 	{
 
 	#pragma endregion
@@ -2013,6 +2012,8 @@ static UINT wf_cliprdr_server_format_list(CliprdrClientContext* context,
 	}
 	else
 	{
+		wfContext* wfc = (wfContext*)context->rdpcontext;
+
 		// the remote clipboard content has changed (copy)
 		// invalidate it so that the next clipboard request (paste) will trigger a new content request then save the result
 		// as long as the remote clipboard doesn't change, every request will send the saved content
@@ -2053,8 +2054,7 @@ static UINT wf_cliprdr_server_format_list_response(CliprdrClientContext*
 	fortunately, one can use the myrtille "keyboard" button to send some text to the server then copy it there afterward
 	*/
 
-	wfContext* wfc = (wfContext*)context->rdpcontext;
-	if (wfc->settings->MyrtilleSessionId == 0)
+	if (context->rdpcontext->settings->MyrtilleSessionId == 0)
 	{
 
 	#pragma endregion
@@ -2332,7 +2332,7 @@ static UINT wf_cliprdr_server_format_data_response(CliprdrClientContext*
 	#pragma region Myrtille
 
 	wfContext* wfc = (wfContext*)context->rdpcontext;
-	if (wfc->settings->MyrtilleSessionId != 0)
+	if (context->rdpcontext->settings->MyrtilleSessionId != 0)
 	{
 		// remote clipboard content was requested; send the response
 		wf_myrtille_send_clipboard(wfc, data, formatDataResponse->dataLen);
@@ -2621,7 +2621,7 @@ BOOL wf_cliprdr_init(wfContext* wfc, CliprdrClientContext* cliprdr)
 	in fact, it just invalidate the client clipboard so that the next local "paste" operation would request, set then render it
 	*/
 
-	if (wfc->settings->MyrtilleSessionId == 0)
+	if (context->settings->MyrtilleSessionId == 0)
 	{
 
 	#pragma endregion

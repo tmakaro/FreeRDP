@@ -350,7 +350,7 @@ static BOOL wf_post_connect(freerdp* instance)
 	WLog_INFO(TAG, "GDI rendering: %s", settings->SoftwareGdi ? "software" : "hardware");
 	WLog_INFO(TAG, "Clipboard redirect: %s", settings->RedirectClipboard ? "on" : "off");
 
-	if (wfc->settings->MyrtilleSessionId == 0 || wfc->settings->MyrtilleShowWindow)
+	if (settings->MyrtilleSessionId == 0 || settings->MyrtilleShowWindow)
 	{
 
 	#pragma endregion
@@ -398,7 +398,7 @@ static BOOL wf_post_connect(freerdp* instance)
 	
 	#pragma region Myrtille
 
-	if (wfc->settings->MyrtilleSessionId == 0 || wfc->settings->MyrtilleShowWindow)
+	if (settings->MyrtilleSessionId == 0 || settings->MyrtilleShowWindow)
 	{
 
 	#pragma endregion
@@ -411,7 +411,7 @@ static BOOL wf_post_connect(freerdp* instance)
 	#pragma region Myrtille
 
 	// don't activate/focus the window if using myrtille
-	ShowWindow(wfc->hwnd, wfc->settings->MyrtilleSessionId == 0 ? SW_SHOWNORMAL : SW_SHOWNOACTIVATE);
+	ShowWindow(wfc->hwnd, settings->MyrtilleSessionId == 0 ? SW_SHOWNORMAL : SW_SHOWNOACTIVATE);
 
 	#pragma endregion
 
@@ -441,7 +441,7 @@ static BOOL wf_post_connect(freerdp* instance)
 
 	#pragma region Myrtille
 
-	if (wfc->settings->MyrtilleSessionId == 0 || wfc->settings->MyrtilleShowWindow)
+	if (settings->MyrtilleSessionId == 0 || settings->MyrtilleShowWindow)
 	{
 
 	#pragma endregion
@@ -732,7 +732,7 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 		#pragma region Myrtille
 
 		// don't focus the window if using myrtille (even if show window is enabled)
-		if (wfc->settings->MyrtilleSessionId == 0)
+		if (settings->MyrtilleSessionId == 0)
 		{
 
 		#pragma endregion
@@ -1100,7 +1100,7 @@ static int wfreerdp_client_start(rdpContext* context)
 
 	wf_myrtille_start(wfc);
 
-	if (wfc->settings->MyrtilleSessionId == 0 || wfc->settings->MyrtilleShowWindow)
+	if (context->settings->MyrtilleSessionId == 0 || context->settings->MyrtilleShowWindow)
 	{
 
 	#pragma endregion
@@ -1132,7 +1132,6 @@ static int wfreerdp_client_start(rdpContext* context)
 	if (!wfc->keyboardThread)
 		return -1;
 
-
 	#pragma region Myrtille
 
 	}
@@ -1163,7 +1162,7 @@ static int wfreerdp_client_stop(rdpContext* context)
 
 	#pragma region Myrtille
 
-	if (wfc->settings->MyrtilleSessionId == 0 || wfc->settings->MyrtilleShowWindow)
+	if (context->settings->MyrtilleSessionId == 0 || context->settings->MyrtilleShowWindow)
 	{
 
 	#pragma endregion
