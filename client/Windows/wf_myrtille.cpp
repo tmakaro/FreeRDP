@@ -170,9 +170,7 @@ typedef struct wf_myrtille wfMyrtille;
 
 void wf_myrtille_start(wfContext* wfc)
 {
-	rdpContext* context = (rdpContext*)wfc;
-
-	if (context->settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == 0)
 		return;
 
 	wfc->myrtille = (wfMyrtille*)calloc(1, sizeof(wfMyrtille));
@@ -184,7 +182,7 @@ void wf_myrtille_start(wfContext* wfc)
 	#endif
 
 	// debug
-	if (context->settings->MyrtilleDebugLog)
+	if (wfc->context.settings->MyrtilleDebugLog)
 	{
 		std::string logDirectoryPath = createLogDirectory();
 		if (logDirectoryPath != "")
@@ -232,8 +230,8 @@ void wf_myrtille_start(wfContext* wfc)
 
 	// display
 	myrtille->scaleDisplay = false;
-	myrtille->clientWidth = context->settings->DesktopWidth;
-	myrtille->clientHeight = context->settings->DesktopHeight;
+	myrtille->clientWidth = wfc->context.settings->DesktopWidth;
+	myrtille->clientHeight = wfc->context.settings->DesktopHeight;
 
 	// clipboard
 	myrtille->clipboardText = "clipboard|";
@@ -285,9 +283,7 @@ void wf_myrtille_start(wfContext* wfc)
 
 void wf_myrtille_stop(wfContext* wfc)
 {
-	rdpContext* context = (rdpContext*)wfc;
-
-	if (context->settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == 0)
 		return;
 
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
@@ -296,9 +292,7 @@ void wf_myrtille_stop(wfContext* wfc)
 
 void wf_myrtille_connect(wfContext* wfc)
 {
-	rdpContext* context = (rdpContext*)wfc;
-
-	if (context->settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == 0)
 		return;
 
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
@@ -307,11 +301,11 @@ void wf_myrtille_connect(wfContext* wfc)
 	DWORD result = connectRemoteSessionPipes(wfc);
 	if (result != 0)
 	{
-		WLog_ERR(TAG, "wf_myrtille_connect: failed to connect session %i with error %d", context->settings->MyrtilleSessionId, result);
+		WLog_ERR(TAG, "wf_myrtille_connect: failed to connect session %i with error %d", wfc->context.settings->MyrtilleSessionId, result);
 		return;
 	}
 
-	WLog_INFO(TAG, "wf_myrtille_connect: connected session %i", context->settings->MyrtilleSessionId);
+	WLog_INFO(TAG, "wf_myrtille_connect: connected session %i", wfc->context.settings->MyrtilleSessionId);
 
 	// process inputs
 	DWORD threadId;
@@ -333,17 +327,15 @@ void wf_myrtille_connect(wfContext* wfc)
 
 void wf_myrtille_send_region(wfContext* wfc, RECT region)
 {
-	rdpContext* context = (rdpContext*)wfc;
-
-	if (context->settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == 0)
 		return;
 
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
 	// --------------------------- consistency check ----------------------------------------------
 
-	if (region.left < 0 || region.left > context->settings->DesktopWidth || region.top < 0 || region.top > context->settings->DesktopHeight ||
-		region.right < 0 || region.right > context->settings->DesktopWidth || region.bottom < 0 || region.bottom > context->settings->DesktopHeight ||
+	if (region.left < 0 || region.left > wfc->context.settings->DesktopWidth || region.top < 0 || region.top > wfc->context.settings->DesktopHeight ||
+		region.right < 0 || region.right > wfc->context.settings->DesktopWidth || region.bottom < 0 || region.bottom > wfc->context.settings->DesktopHeight ||
 		region.left > region.right || region.top > region.bottom)
 		return;
 
@@ -371,8 +363,8 @@ void wf_myrtille_send_region(wfContext* wfc, RECT region)
 	int cw, ch, dw, dh;
 	cw = myrtille->clientWidth;
 	ch = myrtille->clientHeight;
-	dw = context->settings->DesktopWidth;
-	dh = context->settings->DesktopHeight;
+	dw = wfc->context.settings->DesktopWidth;
+	dh = wfc->context.settings->DesktopHeight;
 
 	HDC hdc = CreateCompatibleDC(wfc->primary->hdc);
 	HBITMAP	hbmp;
@@ -443,9 +435,7 @@ void wf_myrtille_send_region(wfContext* wfc, RECT region)
 
 void wf_myrtille_send_cursor(wfContext* wfc)
 {
-	rdpContext* context = (rdpContext*)wfc;
-
-	if (context->settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == 0)
 		return;
 
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
@@ -559,9 +549,7 @@ void wf_myrtille_send_cursor(wfContext* wfc)
 
 void wf_myrtille_reset_clipboard(wfContext* wfc)
 {
-	rdpContext* context = (rdpContext*)wfc;
-
-	if (context->settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == 0)
 		return;
 
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
@@ -572,9 +560,7 @@ void wf_myrtille_reset_clipboard(wfContext* wfc)
 
 void wf_myrtille_send_clipboard(wfContext* wfc, BYTE* data, UINT32 length)
 {
-	rdpContext* context = (rdpContext*)wfc;
-
-	if (context->settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == 0)
 		return;
 
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
@@ -730,10 +716,8 @@ DWORD connectRemoteSessionPipes(wfContext* wfc)
 
 HANDLE connectRemoteSessionPipe(wfContext* wfc, std::string pipeName, DWORD accessMode)
 {
-	rdpContext* context = (rdpContext*)wfc;
-
 	std::stringstream ss;
-	ss << "\\\\.\\pipe\\remotesession_" << context->settings->MyrtilleSessionId << "_" << pipeName;
+	ss << "\\\\.\\pipe\\remotesession_" << wfc->context.settings->MyrtilleSessionId << "_" << pipeName;
 	std::string s = ss.str();
 	std::wstring ws = s2ws(s);
 	LPCWSTR pipeFileName = ws.c_str();
@@ -743,15 +727,13 @@ HANDLE connectRemoteSessionPipe(wfContext* wfc, std::string pipeName, DWORD acce
 
 std::string createRemoteSessionDirectory(wfContext* wfc)
 {
-	rdpContext* context = (rdpContext*)wfc;
-
 	std::string path = "";
 
 	std::string logDirectoryPath = createLogDirectory();
 	if (logDirectoryPath != "")
 	{
 		std::stringstream ss;
-		ss << logDirectoryPath << "\\remotesession_" << context->settings->MyrtilleSessionId << "." << GetCurrentProcessId();
+		ss << logDirectoryPath << "\\remotesession_" << wfc->context.settings->MyrtilleSessionId << "." << GetCurrentProcessId();
 		path = ss.str();
 		std::wstring ws = s2ws(path);
 		LPCWSTR remoteSessionDir = ws.c_str();
@@ -785,7 +767,6 @@ std::vector<std::string> split(const std::string &s, char delim)
 DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 {
 	wfContext* wfc = (wfContext*)lpParameter;
-	rdpContext* context = (rdpContext*)wfc;
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
 	// main loop
@@ -867,10 +848,10 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 								std::string pressed = commandArgs.substr(separatorIdx + 1, 1);
 								// character key
 								if (command == COMMAND::SEND_KEY_UNICODE)
-									context->input->UnicodeKeyboardEvent(context->input, (pressed == "1" ? KBD_FLAGS_DOWN : KBD_FLAGS_RELEASE), atoi(keyCode.c_str()));
+									wfc->context.input->UnicodeKeyboardEvent(wfc->context.input, (pressed == "1" ? KBD_FLAGS_DOWN : KBD_FLAGS_RELEASE), atoi(keyCode.c_str()));
 								// non character key
 								else
-									context->input->KeyboardEvent(context->input, (pressed == "1" ? KBD_FLAGS_DOWN : KBD_FLAGS_RELEASE), atoi(keyCode.c_str()));
+									wfc->context.input->KeyboardEvent(wfc->context.input, (pressed == "1" ? KBD_FLAGS_DOWN : KBD_FLAGS_RELEASE), atoi(keyCode.c_str()));
 							}
 							break;
 
@@ -995,7 +976,6 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 
 void ProcessMouseInput(wfContext* wfc, std::string input, UINT16 flags)
 {
-	rdpContext* context = (rdpContext*)wfc;
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
 	int separatorIdx = input.find("-");
@@ -1008,21 +988,21 @@ void ProcessMouseInput(wfContext* wfc, std::string input, UINT16 flags)
 			int cw, ch, dw, dh;
 			cw = myrtille->clientWidth;
 			ch = myrtille->clientHeight;
-			dw = context->settings->DesktopWidth;
-			dh = context->settings->DesktopHeight;
+			dw = wfc->context.settings->DesktopWidth;
+			dh = wfc->context.settings->DesktopHeight;
 
 			if (!myrtille->scaleDisplay || (cw == dw && ch == dh))
 			{
-				context->input->MouseEvent(
-					context->input,
+				wfc->context.input->MouseEvent(
+					wfc->context.input,
 					flags,
 					stoi(mX),
 					stoi(mY));
 			}
 			else
 			{
-				context->input->MouseEvent(
-					context->input,
+				wfc->context.input->MouseEvent(
+					wfc->context.input,
 					flags,
 					stoi(mX) * dw / cw,
 					stoi(mY) * dh / ch);
@@ -1034,12 +1014,11 @@ void ProcessMouseInput(wfContext* wfc, std::string input, UINT16 flags)
 DWORD WINAPI SendFullscreen(LPVOID lpParameter)
 {
 	wfContext* wfc = (wfContext*)lpParameter;
-	rdpContext* context = (rdpContext*)wfc;
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
 	// --------------------------- pipe check -----------------------------------------------------
 
-	if (context->settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == 0)
 		return 0;
 
 	// --------------------------- retrieve the fullscreen bitmap ---------------------------------
@@ -1047,8 +1026,8 @@ DWORD WINAPI SendFullscreen(LPVOID lpParameter)
 	int cw, ch, dw, dh;
 	cw = myrtille->clientWidth;
 	ch = myrtille->clientHeight;
-	dw = context->settings->DesktopWidth;
-	dh = context->settings->DesktopHeight;
+	dw = wfc->context.settings->DesktopWidth;
+	dh = wfc->context.settings->DesktopHeight;
 
 	HDC hdc = CreateCompatibleDC(wfc->primary->hdc);
 	HBITMAP hbmp = CreateCompatibleBitmap(wfc->primary->hdc, myrtille->scaleDisplay ? cw : dw, myrtille->scaleDisplay ? ch : dh);
@@ -1091,12 +1070,11 @@ DWORD WINAPI SendFullscreen(LPVOID lpParameter)
 DWORD WINAPI SendReload(LPVOID lpParameter)
 {
 	wfContext* wfc = (wfContext*)lpParameter;
-	rdpContext* context = (rdpContext*)wfc;
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
 	// --------------------------- pipe check -----------------------------------------------------
 
-	if (context->settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == 0)
 		return 0;
 
 	// --------------------------- reload request -------------------------------------------------
