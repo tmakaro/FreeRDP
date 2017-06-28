@@ -451,7 +451,7 @@ void wf_myrtille_send_cursor(wfContext* wfc)
 	HBRUSH hbrush = CreateSolidBrush(RGB(0, 0, 255));
 
 	// draw the cursor on the display context
-	DrawIconEx(hdc, 0, 0, (HICON)wfc->cursor, 0, 0, 0, hbrush, DI_NORMAL);
+	DrawIconEx(hdc, 0, 0, (HICON)wfc->cursor, 0, 0, 0, hbrush, DI_MASK);
 
 	// cursor bitmap
 	Gdiplus::Bitmap *bmpCursor = Gdiplus::Bitmap::FromHBITMAP(hbmp, (HPALETTE)0);
