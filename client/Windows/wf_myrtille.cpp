@@ -782,9 +782,6 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 	wfContext* wfc = (wfContext*)lpParameter;
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
-	// ready to accept commands
-	sendText(wfc, "connected");
-
 	// main loop
 	while (myrtille->processInputs)
 	{
