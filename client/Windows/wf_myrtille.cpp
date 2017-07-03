@@ -29,6 +29,7 @@
 #include <sstream>
 #include <vector>
 #include <map>
+#include <atomic>
 
 #include <objidl.h>
 
@@ -50,6 +51,8 @@ DWORD connectRemoteSessionPipes(wfContext* wfc);
 HANDLE connectRemoteSessionPipe(wfContext* wfc, std::string pipeName, DWORD accessMode);
 std::string createRemoteSessionDirectory(wfContext* wfc);
 void ProcessMouseInput(wfContext* wfc, std::string input, UINT16 flags);
+void sendText(wfContext* wfc, std::string text);
+void sendFullscreen(wfContext* wfc);
 void processImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int left, int top, int right, int bottom, bool fullscreen);
 void saveImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int format, int quality, bool fullscreen);
 void sendImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int posX, int posY, int width, int height, int format, int quality, IStream* stream, int size, bool fullscreen);
@@ -59,8 +62,6 @@ void WebPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, IStream* stream,
 static int WebPWriter(const uint8_t* data, size_t data_size, const WebPPicture* const pic);
 
 DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter);
-DWORD WINAPI SendFullscreen(LPVOID lpParameter);
-DWORD WINAPI SendReload(LPVOID lpParameter);
 
 #define TAG CLIENT_TAG("myrtille")
 
@@ -145,8 +146,8 @@ struct wf_myrtille
 	int imageEncoding;
 	int imageQuality;
 	int imageQuantity;
-	int imageCount;
-	int imageIdx;
+	std::atomic<int> imageCount;			// protect from concurrent accesses
+	std::atomic<int> imageIdx;				// protect from concurrent accesses
 
 	// display
 	bool scaleDisplay;						// overrides the FreeRDP "SmartSizing" setting; the objective is not to interfere with the FreeRDP window, if shown
@@ -220,6 +221,9 @@ void wf_myrtille_start(wfContext* wfc)
 	commandMap["FSU"] = COMMAND::REQUEST_FULLSCREEN_UPDATE;
 	commandMap["CLP"] = COMMAND::REQUEST_REMOTE_CLIPBOARD;
 	commandMap["CLO"] = COMMAND::CLOSE_RDP_CLIENT;
+
+	// inputs
+	myrtille->processInputs = true;
 
 	// updates
 	myrtille->imageEncoding = (int)IMAGE_ENCODING::AUTO;
@@ -314,15 +318,6 @@ void wf_myrtille_connect(wfContext* wfc)
 		WLog_ERR(TAG, "wf_myrtille_connect: CreateThread failed for inputs pipe with error %d", GetLastError());
 		return;
 	}
-
-	// handshaking
-	CHAR hello[] = "Hello server";
-	DWORD bytesToWrite = 12;
-	DWORD bytesWritten;
-	if (WriteFile(myrtille->updatesPipe, hello, bytesToWrite, &bytesWritten, NULL) == 0)
-	{
-		WLog_ERR(TAG, "wf_myrtille_connect: handshaking failed with error %d", GetLastError());
-	}
 }
 
 void wf_myrtille_send_region(wfContext* wfc, RECT region)
@@ -340,6 +335,8 @@ void wf_myrtille_send_region(wfContext* wfc, RECT region)
 		return;
 
 	// --------------------------- ips regulator --------------------------------------------------
+
+	// only applies to region updates (not to fullscreen or cursor)
 
 	if (myrtille->imageCount == INT_MAX)
 	{
@@ -447,7 +444,7 @@ void wf_myrtille_send_cursor(wfContext* wfc)
 	HBITMAP hbmp = CreateCompatibleBitmap(wfc->primary->hdc, GetSystemMetrics(SM_CXCURSOR), GetSystemMetrics(SM_CYCURSOR));
 	SelectObject(hdc, hbmp);
 
-	// set a colored background, so that it will be possible to identify parts of the cursor that should be made transparent
+	// set a colored mask, so that it will be possible to identify parts of the cursor that should be made transparent
 	HBRUSH hbrush = CreateSolidBrush(RGB(0, 0, 255));
 
 	// draw the cursor on the display context
@@ -464,26 +461,42 @@ void wf_myrtille_send_cursor(wfContext* wfc)
 		GetSystemMetrics(SM_CYCURSOR),
 		PixelFormat32bppARGB);
 
-	// make the background transparent
+	// lock the cursor while manipulating it
+	Gdiplus::BitmapData* bmpData = new Gdiplus::BitmapData();
+	Gdiplus::Rect* rect = new Gdiplus::Rect(0, 0, bmpTransparentCursor->GetWidth(), bmpTransparentCursor->GetHeight());
+	bmpTransparentCursor->LockBits(rect, ImageLockModeRead | ImageLockModeWrite, PixelFormat32bppARGB, bmpData);
+
+	UINT* bmpBits = (UINT*)bmpData->Scan0;
+	int stride = bmpData->Stride;
+
+	// make the cursor transparent
 	for (int x = 0; x < bmpTransparentCursor->GetWidth(); x++)
 	{
 		for (int y = 0; y < bmpTransparentCursor->GetHeight(); y++)
 		{
-			Gdiplus::Color color;
-			bmpTransparentCursor->GetPixel(x, y, &color);
+			UINT color = bmpBits[y * stride / 4 + x];
 
-			if (color.GetValue() == Gdiplus::Color::Blue)
+			int b = color & 0xff;
+			int g = (color & 0xff00) >> 8;
+			int r = (color & 0xff0000) >> 16;
+			int a = (color & 0xff000000) >> 24;
+
+			// replace the blue (mask) color by transparent one
+			if (r == 0 && g == 0 && b == 255)
 			{
-				bmpTransparentCursor->SetPixel(x, y, Gdiplus::Color::Transparent);
+				bmpBits[y * stride / 4 + x] = 0x00ffffff;
 			}
 
 			// for some reason, some cursors (like the text one) are yellow instead of black ?! switching color...
-			else if (color.GetValue() == Gdiplus::Color::Yellow)
+			else if (r == 255 && g == 255 && b == 0)
 			{
-				bmpTransparentCursor->SetPixel(x, y, Gdiplus::Color::Black);
+				bmpBits[y * stride / 4 + x] = 0xff000000;
 			}
 		}
 	}
+
+	// unlock the cursor
+	bmpTransparentCursor->UnlockBits(bmpData);
 
 	// convert into PNG
 	IStream* pngStream;
@@ -697,14 +710,14 @@ DWORD connectRemoteSessionPipes(wfContext* wfc)
 {
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
-	// connect inputs pipe (user inputs and rdp commands)
+	// connect inputs pipe (commands)
 	if ((myrtille->inputsPipe = connectRemoteSessionPipe(wfc, "inputs", GENERIC_READ)) == INVALID_HANDLE_VALUE)
 	{
 		WLog_ERR(TAG, "connectRemoteSessionPipes: connect failed for inputs pipe with error %d", GetLastError());
 		return GetLastError();
 	}
 
-	// connect updates pipe (region and fullscreen updates)
+	// connect updates pipe (region, fullscreen and cursor updates)
 	if ((myrtille->updatesPipe = connectRemoteSessionPipe(wfc, "updates", GENERIC_WRITE)) == INVALID_HANDLE_VALUE)
 	{
 		WLog_ERR(TAG, "connectRemoteSessionPipes: connect failed for updates pipe with error %d", GetLastError());
@@ -769,8 +782,10 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 	wfContext* wfc = (wfContext*)lpParameter;
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
+	// ready to accept commands
+	sendText(wfc, "connected");
+
 	// main loop
-	myrtille->processInputs = true;
 	while (myrtille->processInputs)
 	{
 		CHAR buffer[INPUTS_PIPE_BUFFER_SIZE];
@@ -889,8 +904,7 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 						case COMMAND::SET_STAT_MODE:
 						case COMMAND::SET_DEBUG_MODE:
 						case COMMAND::SET_COMPATIBILITY_MODE:
-							if (QueueUserWorkItem(SendReload, lpParameter, WT_EXECUTEDEFAULT) == 0)
-								WLog_ERR(TAG, "ProcessInputsPipe: QueueUserWorkItem failed for SendReload with error %d", GetLastError());
+							sendText(wfc, "reload");
 							break;
 
 						// scale display
@@ -902,8 +916,7 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 								myrtille->clientWidth = stoi(commandArgs.substr(0, separatorIdx));
 								myrtille->clientHeight = stoi(commandArgs.substr(separatorIdx + 1, commandArgs.length() - separatorIdx - 1));
 							}
-							if (QueueUserWorkItem(SendReload, lpParameter, WT_EXECUTEDEFAULT) == 0)
-								WLog_ERR(TAG, "ProcessInputsPipe: QueueUserWorkItem failed for SendReload with error %d", GetLastError());
+							sendText(wfc, "reload");
 							break;
 
 						// image encoding
@@ -926,8 +939,7 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 
 						// fullscreen update
 						case COMMAND::REQUEST_FULLSCREEN_UPDATE:
-							if (QueueUserWorkItem(SendFullscreen, lpParameter, WT_EXECUTEDEFAULT) == 0)
-								WLog_ERR(TAG, "ProcessInputsPipe: QueueUserWorkItem failed for SendFullscreen with error %d", GetLastError());
+							sendFullscreen(wfc);
 							break;
 
 						// clipboard text
@@ -1011,15 +1023,26 @@ void ProcessMouseInput(wfContext* wfc, std::string input, UINT16 flags)
 	}
 }
 
-DWORD WINAPI SendFullscreen(LPVOID lpParameter)
+void sendText(wfContext* wfc, std::string text)
 {
-	wfContext* wfc = (wfContext*)lpParameter;
+	if (wfc->context.settings->MyrtilleSessionId == 0)
+		return;
+
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
-	// --------------------------- pipe check -----------------------------------------------------
+	DWORD bytesWritten;
+	if (WriteFile(myrtille->updatesPipe, text.c_str(), text.length(), &bytesWritten, NULL) == 0)
+	{
+		WLog_ERR(TAG, "ProcessInputsPipe: WriteFile failed for sendText: %s with error %d", text, GetLastError());
+	}
+}
 
+void sendFullscreen(wfContext* wfc)
+{
 	if (wfc->context.settings->MyrtilleSessionId == 0)
-		return 0;
+		return;
+
+	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
 	// --------------------------- retrieve the fullscreen bitmap ---------------------------------
 
@@ -1063,33 +1086,6 @@ DWORD WINAPI SendFullscreen(LPVOID lpParameter)
 
 	DeleteDC(hdc);
 	hdc = NULL;
-
-	return 0;
-}
-
-DWORD WINAPI SendReload(LPVOID lpParameter)
-{
-	wfContext* wfc = (wfContext*)lpParameter;
-	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
-
-	// --------------------------- pipe check -----------------------------------------------------
-
-	if (wfc->context.settings->MyrtilleSessionId == 0)
-		return 0;
-
-	// --------------------------- reload request -------------------------------------------------
-
-	std::stringstream ss;
-	ss << "reload";
-	std::string s = ss.str();
-
-	DWORD bytesWritten;
-	if (WriteFile(myrtille->updatesPipe, s.c_str(), s.length(), &bytesWritten, NULL) == 0)
-	{
-		WLog_ERR(TAG, "ProcessInputsPipe: WriteFile failed for reload with error %d", GetLastError());
-	}
-
-	return 0;
 }
 
 void processImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int left, int top, int right, int bottom, bool fullscreen)
@@ -1400,7 +1396,7 @@ void WebPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, IStream* stream,
 			myrtille->webpConfig.quality = quality;
 
 			if (!WebPEncode(&myrtille->webpConfig, &webpPic))
-			WLog_ERR(TAG, "WebpEncode: WebP encoding failed");
+				WLog_ERR(TAG, "WebpEncode: WebP encoding failed");
 		}
 
 		// cleanup

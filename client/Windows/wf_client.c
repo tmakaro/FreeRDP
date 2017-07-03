@@ -115,7 +115,21 @@ static BOOL wf_end_paint(rdpContext* context)
 		updateRect.top = extents->top;
 		updateRect.right = extents->right;
 		updateRect.bottom = extents->bottom;
+
+		#pragma region Myrtille
+		
+		if (wfc->hwnd)
+		{
+
+		#pragma endregion
+
 		InvalidateRect(wfc->hwnd, &updateRect, FALSE);
+
+		#pragma region Myrtille
+
+		}
+
+		#pragma endregion
 
 		if (wfc->rail)
 			wf_rail_invalidate_region(wfc, &invalidRegion);
@@ -717,6 +731,12 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 	if (!freerdp_connect(instance))
 		return 0;
 
+	#pragma region Myrtille
+
+	wf_myrtille_connect(wfc);
+
+	#pragma endregion
+
 	channels = instance->context->channels;
 	settings = instance->context->settings;
 	async_input = settings->AsyncInput;
@@ -732,12 +752,6 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 			goto disconnect;
 		}
 	}
-
-	#pragma region Myrtille
-
-	wf_myrtille_connect(wfc);
-
-	#pragma endregion
 
 	while (1)
 	{
