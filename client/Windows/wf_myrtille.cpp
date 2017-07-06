@@ -143,15 +143,15 @@ struct wf_myrtille
 	bool processInputs;
 
 	// updates
-	int imageEncoding;
-	int imageQuality;
-	int imageQuantity;
+	int imageEncoding;						// provided by the client
+	int imageQuality;						// provided by the client
+	int imageQuantity;						// provided by the client
 	std::atomic<int> imageCount;			// protect from concurrent accesses
 	std::atomic<int> imageIdx;				// protect from concurrent accesses
 
 	// display
 	bool scaleDisplay;						// overrides the FreeRDP "SmartSizing" setting; the objective is not to interfere with the FreeRDP window, if shown
-	int clientWidth;						// overrides wf_context::client_width (same purpose as above)
+	int clientWidth;						// overrides wf_context::client_width
 	int clientHeight;						// overrides wf_context::client_height
 
 	// clipboard
