@@ -3,6 +3,10 @@
 #
 # Copyright 2012 Marc-Andre Moreau <marcandre.moreau@gmail.com>
 #
+# Myrtille: A native HTML4/5 Remote Desktop Protocol client
+#
+# Copyright(c) 2014-2017 Cedric Coste
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -85,6 +89,7 @@ set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} winpr freerdp)
 target_link_libraries(${MODULE_NAME} ${${MODULE_PREFIX}_LIBS})
 
 # <Myrtille>
+target_link_libraries(${MODULE_NAME} gdiplus.lib)
 target_link_libraries(${MODULE_NAME} ${CMAKE_SOURCE_DIR}/webp/lib/libwebp.lib)
 # </Myrtille>
 
@@ -106,5 +111,4 @@ set_property(TARGET ${MODULE_NAME} PROPERTY FOLDER "Client/Windows")
 
 # <Myrtille>
 include_directories(${CMAKE_SOURCE_DIR}/webp/include)
-include_directories(${OPENSSL_INCLUDE_DIR})
 # </Myrtille>

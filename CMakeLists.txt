@@ -6,6 +6,10 @@
 # Copyright 2011 Marc-Andre Moreau <marcandre.moreau@gmail.com>
 # Copyright 2012 HP Development Company, LLC
 #
+# Myrtille: A native HTML4/5 Remote Desktop Protocol client
+#
+# Copyright(c) 2014-2017 Cedric Coste
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at

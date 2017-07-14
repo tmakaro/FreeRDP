@@ -34,7 +34,7 @@
 #include <objidl.h>
 
 #include <GdiPlus.h>
-#pragma comment(lib, "gdiplus")
+#pragma comment(lib, "gdiplus.lib")
 using namespace Gdiplus;
 
 #include "encode.h"
@@ -439,6 +439,14 @@ void wf_myrtille_send_cursor(wfContext* wfc)
 
 	// --------------------------- set cursor -----------------------------------------------------
 
+	// for the record, I tried several ways to handle the alpha channel (transparency) and ended with the following solutions:
+	// - looping all cursor pixels, making the mask transparent: GetPixel/SetPixel: GDI+, working, but a bit slow and unsafe as the bitmap data is not locked
+	// - looping all cursor pixels, making the mask transparent: LockBits/UnlockBits: GDI+, working, fast and safe as the bitmap data is locked (current solution)
+	// - cursor to bitmap: GDI+, working, but loose the alpha channel when using Gdiplus::Bitmap::FromHBITMAP. See https://stackoverflow.com/questions/4451839/how-to-render-a-transparent-cursor-to-bitmap-preserving-alpha-channel
+	// - hbitmap to bitmap: memcpy instead of Gdiplus::Bitmap::FromHBITMAP: GDI+, working partially, cursors are bottom/up and some are blackened. See https://stackoverflow.com/questions/335273/how-to-create-a-gdiplusbitmap-from-an-hbitmap-retaining-the-alpha-channel-inf
+	// - TransparentBlt: GDI, working, but also loose the alpha channel when passed to a GDI+ bitmap using Gdiplus::Bitmap::FromHBITMAP
+	// - AlphaBlend: same as for TransparentBlt
+
 	// set a display context and a bitmap to store the mouse cursor
 	HDC hdc = CreateCompatibleDC(wfc->primary->hdc);
 	HBITMAP hbmp = CreateCompatibleBitmap(wfc->primary->hdc, GetSystemMetrics(SM_CXCURSOR), GetSystemMetrics(SM_CYCURSOR));
@@ -497,7 +505,7 @@ void wf_myrtille_send_cursor(wfContext* wfc)
 
 	// unlock the cursor
 	bmpTransparentCursor->UnlockBits(bmpData);
-
+	
 	// convert into PNG
 	IStream* pngStream;
 	CreateStreamOnHGlobal(NULL, TRUE, &pngStream);
@@ -543,6 +551,12 @@ void wf_myrtille_send_cursor(wfContext* wfc)
 		pngStream->Release();
 		pngStream = NULL;
 	}
+
+	delete rect;
+	rect = NULL;
+
+	delete bmpData;
+	bmpData = NULL;
 
 	delete bmpTransparentCursor;
 	bmpTransparentCursor = NULL;
@@ -1022,9 +1036,6 @@ void ProcessMouseInput(wfContext* wfc, std::string input, UINT16 flags)
 
 void sendText(wfContext* wfc, std::string text)
 {
-	if (wfc->context.settings->MyrtilleSessionId == 0)
-		return;
-
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
 	DWORD bytesWritten;
@@ -1036,9 +1047,6 @@ void sendText(wfContext* wfc, std::string text)
 
 void sendFullscreen(wfContext* wfc)
 {
-	if (wfc->context.settings->MyrtilleSessionId == 0)
-		return;
-
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
 	// --------------------------- retrieve the fullscreen bitmap ---------------------------------
@@ -1396,9 +1404,9 @@ void WebPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, IStream* stream,
 				WLog_ERR(TAG, "WebpEncode: WebP encoding failed");
 		}
 
-		// cleanup
-
 		bmp->UnlockBits(bmpData);
+		
+		// cleanup
 
 		delete rect;
 		rect = NULL;
