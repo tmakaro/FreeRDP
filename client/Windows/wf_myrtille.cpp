@@ -462,12 +462,9 @@ void wf_myrtille_send_cursor(wfContext* wfc)
 	Gdiplus::Bitmap *bmpCursor = Gdiplus::Bitmap::FromHBITMAP(hbmp, (HPALETTE)0);
 
 	// extract the relevant cursor image. also, transparency requires ARGB format
-	Gdiplus::Bitmap *bmpTransparentCursor = bmpCursor->Clone(
-		0,
-		0,
-		GetSystemMetrics(SM_CXCURSOR),
-		GetSystemMetrics(SM_CYCURSOR),
-		PixelFormat32bppARGB);
+	Gdiplus::Bitmap *bmpTransparentCursor = new Gdiplus::Bitmap(bmpCursor->GetWidth(), bmpCursor->GetHeight(), PixelFormat32bppARGB);
+	Gdiplus::Graphics gfxTransparentCursor(bmpTransparentCursor);
+	gfxTransparentCursor.DrawImage(bmpCursor, 0, 0, bmpCursor->GetWidth(), bmpCursor->GetHeight());
 
 	// lock the cursor while manipulating it
 	Gdiplus::BitmapData* bmpData = new Gdiplus::BitmapData();
