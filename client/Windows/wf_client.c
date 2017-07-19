@@ -503,6 +503,14 @@ static CREDUI_INFOA wfUiInfo =
 static BOOL wf_authenticate_raw(freerdp* instance, const char* title,
                                 char** username, char** password, char** domain)
 {
+	#pragma region Myrtille
+
+	// disable the credentials popup when using myrtille in windowless mode
+	if (instance->settings->MyrtilleSessionId != 0 && !instance->settings->MyrtilleShowWindow)
+		return FALSE;
+
+	#pragma endregion
+
 	BOOL fSave;
 	DWORD status;
 	DWORD dwFlags;
