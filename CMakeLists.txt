@@ -812,6 +812,11 @@ else()
 	set(WITH_GFX_H264 OFF)
 endif()
 
+# <Myrtille>
+# disable H264 (Myrtille does process bitmaps updates, not video streams)
+set(WITH_GFX_H264 OFF)
+# </Myrtille>
+
 # Android expects all libraries to be loadable
 # without paths.
 if (ANDROID)
