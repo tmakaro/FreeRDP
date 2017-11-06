@@ -19,8 +19,8 @@
  * limitations under the License.
  */
 
-#ifndef __XFREERDP_H
-#define __XFREERDP_H
+#ifndef FREERDP_CLIENT_X11_FREERDP_H
+#define FREERDP_CLIENT_X11_FREERDP_H
 
 typedef struct xf_context xfContext;
 
@@ -139,13 +139,6 @@ struct xf_context
 	UINT16 frame_y1;
 	UINT16 frame_x2;
 	UINT16 frame_y2;
-
-	UINT8 red_shift_l;
-	UINT8 red_shift_r;
-	UINT8 green_shift_l;
-	UINT8 green_shift_r;
-	UINT8 blue_shift_l;
-	UINT8 blue_shift_r;
 
 	int XInputOpcode;
 
@@ -287,5 +280,5 @@ void xf_draw_screen(xfContext* xfc, int x, int y, int w, int h);
 
 FREERDP_API DWORD xf_exit_code_from_disconnect_reason(DWORD reason);
 
-#endif /* __XFREERDP_H */
+#endif /* FREERDP_CLIENT_X11_FREERDP_H */
 

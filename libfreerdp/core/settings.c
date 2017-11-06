@@ -562,6 +562,7 @@ rdpSettings* freerdp_settings_new(DWORD flags)
 
 	if (!settings->ServerMode)
 	{
+		settings->RedirectClipboard = TRUE;
 		/* these values are used only by the client part */
 		settings->HomePath = GetKnownPath(KNOWN_PATH_HOME);
 
@@ -769,8 +770,8 @@ rdpSettings* freerdp_settings_clone(rdpSettings* settings)
 
 		if (_settings->ChannelDefArraySize > 0)
 		{
-			_settings->ChannelDefArray = (CHANNEL_DEF*) malloc(sizeof(
-			                                 CHANNEL_DEF) * settings->ChannelDefArraySize);
+			_settings->ChannelDefArray = (CHANNEL_DEF*) calloc(settings->ChannelDefArraySize,
+									sizeof(CHANNEL_DEF));
 
 			if (!_settings->ChannelDefArray)
 				goto out_fail;
@@ -786,8 +787,8 @@ rdpSettings* freerdp_settings_clone(rdpSettings* settings)
 
 		if (_settings->MonitorDefArraySize > 0)
 		{
-			_settings->MonitorDefArray = (rdpMonitor*) malloc(sizeof(
-			                                 rdpMonitor) * settings->MonitorDefArraySize);
+			_settings->MonitorDefArray = (rdpMonitor*) calloc(settings->MonitorDefArraySize,
+									sizeof(rdpMonitor));
 
 			if (!_settings->MonitorDefArray)
 				goto out_fail;

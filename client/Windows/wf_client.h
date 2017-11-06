@@ -23,8 +23,8 @@
  * limitations under the License.
  */
 
-#ifndef __WF_INTERFACE_H
-#define __WF_INTERFACE_H
+#ifndef FREERDP_CLIENT_WIN_INTERFACE_H
+#define FREERDP_CLIENT_WIN_INTERFACE_H
 
 #include <winpr/windows.h>
 
@@ -158,4 +158,4 @@ FREERDP_API void wf_size_scrollbars(wfContext* wfc, UINT32 client_width,
 }
 #endif
 
-#endif
+#endif /* FREERDP_CLIENT_WIN_INTERFACE_H */

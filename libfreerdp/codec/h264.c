@@ -468,17 +468,7 @@ BOOL h264_context_init(H264_CONTEXT* h264)
 	for (i = 0; i < MAX_SUBSYSTEMS; i++)
 	{
 		H264_CONTEXT_SUBSYSTEM* subsystem = subSystems[i];
-		
-		#pragma region Myrtille
-		
-		// subsystem may be null (depending on available codecs); check it
-		// will be sent as pull request to FreeRDP master branch
-		if (!subsystem)
-			continue;
-
-		#pragma endregion
-
-		if (!subsystem->Init)
+		if (!subsystem || !subsystem->Init)
 			break;
 
 		if (subsystem->Init(h264))

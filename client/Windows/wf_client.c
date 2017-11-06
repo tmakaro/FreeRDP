@@ -149,24 +149,10 @@ static BOOL wf_begin_paint(rdpContext* context)
 {
 	HGDI_DC hdc;
 
-	#pragma region Myrtille
-
-	/*
-	the original FreeRDP code (commented below) results in the whole screen being repainted everytime a single change occurs on screen!
-	this isn't so much an issue when FreeRDP is used with a normal window because graphic cards are nowadays efficients,
-	but it becomes a serious problem when used with myrtille because it requires much more CPU/bandwidth to generate/send a fullscreen update each time a single change occurs (...)
-	it also breaks the core pattern which consist in sending and displaying only the changes
-	the fix below will be submitted as a pull request to the FreeRDP team
-	*/
-
-	//if (!context || !context->gdi || !context->gdi->hdc)
 	if (!context || !context->gdi || !context->gdi->primary || !context->gdi->primary->hdc)
 		return FALSE;
 
-	//hdc = context->gdi->hdc;
 	hdc = context->gdi->primary->hdc;
-
-	#pragma endregion
 
 	if (!hdc || !hdc->hwnd || !hdc->hwnd->invalid)
 		return FALSE;

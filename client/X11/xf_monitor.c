@@ -115,7 +115,7 @@ BOOL xf_detect_monitors(xfContext* xfc, UINT32* pMaxWidth, UINT32* pMaxHeight)
 {
 	int i;
 	int nmonitors = 0;
-	int primaryMonitorFound = FALSE;
+	BOOL primaryMonitorFound = FALSE;
 	VIRTUAL_SCREEN* vscreen;
 	rdpSettings* settings = xfc->context.settings;
 	int mouse_x, mouse_y, _dummy_i;
@@ -198,20 +198,34 @@ BOOL xf_detect_monitors(xfContext* xfc, UINT32* pMaxWidth, UINT32* pMaxHeight)
 	}
 	else if (settings->PercentScreen)
 	{
-		*pMaxWidth = (xfc->workArea.width * settings->PercentScreen) / 100;
-		*pMaxHeight = (xfc->workArea.height * settings->PercentScreen) / 100;
-
 		/* If we have specific monitor information then limit the PercentScreen value
 		 * to only affect the current monitor vs. the entire desktop
 		 */
 		if (vscreen->nmonitors > 0)
 		{
-			*pMaxWidth = ((vscreen->monitors[current_monitor].area.right -
+			*pMaxWidth = vscreen->monitors[current_monitor].area.right -
+				           vscreen->monitors[current_monitor].area.left + 1;
+			*pMaxHeight = vscreen->monitors[current_monitor].area.bottom -
+			              vscreen->monitors[current_monitor].area.top + 1;
+			if(settings->PercentScreenUseWidth)
+				*pMaxWidth = ((vscreen->monitors[current_monitor].area.right -
 			               vscreen->monitors[current_monitor].area.left + 1) * settings->PercentScreen) /
 			             100;
-			*pMaxHeight = ((vscreen->monitors[current_monitor].area.bottom -
+
+			if(settings->PercentScreenUseHeight)
+				*pMaxHeight = ((vscreen->monitors[current_monitor].area.bottom -
 			                vscreen->monitors[current_monitor].area.top + 1) * settings->PercentScreen) /
 			              100;
+		}
+		else
+		{
+			*pMaxWidth = xfc->workArea.width;
+			*pMaxHeight = xfc->workArea.height;
+
+			if(settings->PercentScreenUseWidth)
+				*pMaxWidth = (xfc->workArea.width * settings->PercentScreen) / 100;
+			if(settings->PercentScreenUseHeight)
+				*pMaxHeight = (xfc->workArea.height * settings->PercentScreen) / 100;
 		}
 	}
 
@@ -219,8 +233,7 @@ BOOL xf_detect_monitors(xfContext* xfc, UINT32* pMaxWidth, UINT32* pMaxHeight)
 		return TRUE;
 
 	/* If single monitor fullscreen OR workarea without remote app */
-	if ((settings->Fullscreen && !settings->UseMultimon && !settings->SpanMonitors)
-	    ||
+	if ((settings->Fullscreen && !settings->UseMultimon && !settings->SpanMonitors) ||
 	    (settings->Workarea && !settings->RemoteApplicationMode))
 	{
 		/* If no monitors were specified on the command-line then set the current monitor as active */
@@ -250,6 +263,10 @@ BOOL xf_detect_monitors(xfContext* xfc, UINT32* pMaxWidth, UINT32* pMaxHeight)
 		            vscreen->monitors[i].area.bottom - vscreen->monitors[i].area.top + 1,
 		            *pMaxHeight);
 		settings->MonitorDefArray[nmonitors].orig_screen = i;
+		if (i == settings->MonitorIds[0]) {
+			settings->MonitorDefArray[nmonitors].is_primary = TRUE;
+			primaryMonitorFound = TRUE;
+		}
 		nmonitors++;
 	}
 
@@ -370,6 +387,12 @@ BOOL xf_detect_monitors(xfContext* xfc, UINT32* pMaxWidth, UINT32* pMaxHeight)
 		*pMaxWidth = vscreen->area.right - vscreen->area.left + 1;
 		*pMaxHeight = vscreen->area.bottom - vscreen->area.top + 1;
 	}
+
+	/* some 2008 server freeze at logon if we announce support for monitor layout PDU with
+	 * #monitors < 2. So let's announce it only if we have more than 1 monitor.
+	 */
+	if (settings->MonitorCount)
+		settings->SupportMonitorLayoutPdu = TRUE;
 
 	return TRUE;
 }
