@@ -144,6 +144,12 @@ struct wf_context
 	#pragma endregion
 };
 
+#pragma region Myrtille
+
+FREERDP_API DWORD WINAPI wf_client_thread(LPVOID lpParam);
+
+#pragma endregion
+
 /**
  * Client Interface
  */

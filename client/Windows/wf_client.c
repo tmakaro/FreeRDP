@@ -727,7 +727,10 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 
 	#pragma region Myrtille
 
-	wf_myrtille_connect(wfc);
+	if (context->settings->MyrtilleSessionId != 0)
+	{
+		wf_myrtille_send_screen(wfc);
+	}
 
 	#pragma endregion
 
@@ -861,6 +864,15 @@ disconnect:
 
 	if (async_input)
 		CloseHandle(input_thread);
+
+	#pragma region Myrtille
+
+	if (context->settings->MyrtilleSessionId != 0)
+	{
+		ExitProcess(0);
+	}
+
+	#pragma endregion
 
 	WLog_DBG(TAG, "Main thread exited.");
 	ExitThread(0);
@@ -1120,7 +1132,10 @@ static int wfreerdp_client_start(rdpContext* context)
 	
 	#pragma region Myrtille
 
-	wf_myrtille_start(wfc);
+	if (context->settings->MyrtilleSessionId != 0)
+	{
+		wf_myrtille_start(wfc);
+	}
 
 	if (context->settings->MyrtilleSessionId == 0 || context->settings->MyrtilleShowWindow)
 	{
@@ -1158,10 +1173,23 @@ static int wfreerdp_client_start(rdpContext* context)
 
 	}
 
+	if (context->settings->MyrtilleSessionId == 0)
+	{
+
 	#pragma endregion
 	
 	wfc->thread = CreateThread(NULL, 0, wf_client_thread, (void*) instance, 0,
 	                           &wfc->mainThreadId);
+
+	#pragma region Myrtille
+
+	}
+	else
+	{
+		wfc->thread = wf_myrtille_connect(wfc);
+	}
+
+	#pragma endregion
 
 	if (!wfc->thread)
 		return -1;
@@ -1202,7 +1230,10 @@ static int wfreerdp_client_stop(rdpContext* context)
 
 	}
 
-	wf_myrtille_stop(wfc);
+	if (context->settings->MyrtilleSessionId != 0)
+	{
+		wf_myrtille_stop(wfc);
+	}
 
 	#pragma endregion
 

@@ -31,7 +31,8 @@ extern "C" {
 
 void wf_myrtille_start(wfContext* wfc);
 void wf_myrtille_stop(wfContext* wfc);
-void wf_myrtille_connect(wfContext* wfc);
+HANDLE wf_myrtille_connect(wfContext* wfc);
+void wf_myrtille_send_screen(wfContext* wfc);
 void wf_myrtille_send_region(wfContext* wfc, RECT region);
 void wf_myrtille_send_cursor(wfContext* wfc);
 void wf_myrtille_reset_clipboard(wfContext* wfc);

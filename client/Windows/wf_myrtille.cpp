@@ -40,28 +40,28 @@ using namespace Gdiplus;
 #include "encode.h"
 #pragma comment(lib, "libwebp.lib")
 
+#include <freerdp/client/cmdline.h>
 #include "wf_client.h"
 #include "wf_myrtille.h"
 
-int GetEncoderClsid(const WCHAR* format, CLSID* pClsid);
+int getEncoderClsid(const WCHAR* format, CLSID* pClsid);
 std::string getCurrentTime();
 std::string createLogDirectory();
 std::wstring s2ws(const std::string& s);
 DWORD connectRemoteSessionPipes(wfContext* wfc);
 HANDLE connectRemoteSessionPipe(wfContext* wfc, std::string pipeName, DWORD accessMode);
 std::string createRemoteSessionDirectory(wfContext* wfc);
-void ProcessMouseInput(wfContext* wfc, std::string input, UINT16 flags);
-void sendText(wfContext* wfc, std::string text);
-void sendFullscreen(wfContext* wfc);
+void processMouseInput(wfContext* wfc, std::string input, UINT16 flags);
+void sendMessage(wfContext* wfc, std::string msg);
 void processImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int left, int top, int right, int bottom, bool fullscreen);
 void saveImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int format, int quality, bool fullscreen);
 void sendImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int posX, int posY, int width, int height, int format, int quality, IStream* stream, int size, bool fullscreen);
 void int32ToBytes(int value, int startIndex, byte* bytes);
 
-void WebPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, IStream* stream, float quality, bool fullscreen);
-static int WebPWriter(const uint8_t* data, size_t data_size, const WebPPicture* const pic);
+void webPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, IStream* stream, float quality, bool fullscreen);
+static int webPWriter(const uint8_t* data, size_t data_size, const WebPPicture* const pic);
 
-DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter);
+DWORD WINAPI processInputsPipe(LPVOID lpParameter);
 
 #define TAG CLIENT_TAG("myrtille")
 
@@ -72,32 +72,40 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter);
 // command
 enum class COMMAND
 {
+	// connection
+	SEND_SERVER_ADDRESS = 0,
+	SEND_USER_DOMAIN = 1,
+	SEND_USER_NAME = 2,
+	SEND_USER_PASSWORD = 3,
+	SEND_START_PROGRAM = 4,
+	CONNECT_RDP_CLIENT = 5,
+
 	// browser
-	SEND_BROWSER_RESIZE = 0,
+	SEND_BROWSER_RESIZE = 6,
 
 	// keyboard
-	SEND_KEY_UNICODE = 1,
-	SEND_KEY_SCANCODE = 2,
+	SEND_KEY_UNICODE = 7,
+	SEND_KEY_SCANCODE = 8,
 
 	// mouse
-	SEND_MOUSE_MOVE = 3,
-	SEND_MOUSE_LEFT_BUTTON = 4,
-	SEND_MOUSE_MIDDLE_BUTTON = 5,
-	SEND_MOUSE_RIGHT_BUTTON = 6,
-	SEND_MOUSE_WHEEL_UP = 7,
-	SEND_MOUSE_WHEEL_DOWN = 8,
+	SEND_MOUSE_MOVE = 9,
+	SEND_MOUSE_LEFT_BUTTON = 10,
+	SEND_MOUSE_MIDDLE_BUTTON = 11,
+	SEND_MOUSE_RIGHT_BUTTON = 12,
+	SEND_MOUSE_WHEEL_UP = 13,
+	SEND_MOUSE_WHEEL_DOWN = 14,
 
 	// control
-	SET_STAT_MODE = 9,
-	SET_DEBUG_MODE = 10,
-	SET_COMPATIBILITY_MODE = 11,
-	SET_SCALE_DISPLAY = 12,
-	SET_IMAGE_ENCODING = 13,
-	SET_IMAGE_QUALITY = 14,
-	SET_IMAGE_QUANTITY = 15,
-	REQUEST_FULLSCREEN_UPDATE = 16,
-	REQUEST_REMOTE_CLIPBOARD = 17,
-	CLOSE_RDP_CLIENT = 18
+	SET_STAT_MODE = 15,
+	SET_DEBUG_MODE = 16,
+	SET_COMPATIBILITY_MODE = 17,
+	SET_SCALE_DISPLAY = 18,
+	SET_IMAGE_ENCODING = 19,
+	SET_IMAGE_QUALITY = 20,
+	SET_IMAGE_QUANTITY = 21,
+	REQUEST_FULLSCREEN_UPDATE = 22,
+	REQUEST_REMOTE_CLIPBOARD = 23,
+	CLOSE_RDP_CLIENT = 24
 };
 
 // command mapping
@@ -106,8 +114,8 @@ std::map<std::string, COMMAND> commandMap;
 // image encoding
 enum class IMAGE_ENCODING
 {
-	AUTO = 0,								// default
-	PNG = 1,
+	AUTO = 0,
+	PNG = 1,								// default
 	JPEG = 2,
 	WEBP = 3
 };
@@ -128,9 +136,9 @@ enum class IMAGE_QUALITY
 {
 	LOW = 10,
 	MEDIUM = 25,
-	HIGH = 50,								// default; may be tweaked dynamically depending on image encoding and client bandwidth
-	HIGHER = 75,							// used for fullscreen updates
-	HIGHEST = 100
+	HIGH = 50,								// not applicable for PNG (lossless); may be tweaked dynamically depending on image encoding and client bandwidth
+	HIGHER = 75,							// not applicable for PNG (lossless); used for fullscreen updates
+	HIGHEST = 100							// default
 };
 
 struct wf_myrtille
@@ -202,6 +210,12 @@ void wf_myrtille_start(wfContext* wfc)
 	they make it easier to read log traces to find out which commands are issued
 	they must match the prefixes used client side
 	*/
+	commandMap["SRV"] = COMMAND::SEND_SERVER_ADDRESS;
+	commandMap["DOM"] = COMMAND::SEND_USER_DOMAIN;
+	commandMap["USR"] = COMMAND::SEND_USER_NAME;
+	commandMap["PWD"] = COMMAND::SEND_USER_PASSWORD;
+	commandMap["PRG"] = COMMAND::SEND_START_PROGRAM;
+	commandMap["CON"] = COMMAND::CONNECT_RDP_CLIENT;
 	commandMap["RSZ"] = COMMAND::SEND_BROWSER_RESIZE;
 	commandMap["KUC"] = COMMAND::SEND_KEY_UNICODE;
 	commandMap["KSC"] = COMMAND::SEND_KEY_SCANCODE;
@@ -245,8 +259,8 @@ void wf_myrtille_start(wfContext* wfc)
 	GdiplusStartupInput gdiplusStartupInput;
 	GdiplusStartup(&myrtille->gdiplusToken, &gdiplusStartupInput, NULL);
 
-	GetEncoderClsid(L"image/png", &myrtille->pngClsid);
-	GetEncoderClsid(L"image/jpeg", &myrtille->jpgClsid);
+	getEncoderClsid(L"image/png", &myrtille->pngClsid);
+	getEncoderClsid(L"image/jpeg", &myrtille->jpgClsid);
 
 	int quality = (int)IMAGE_QUALITY::HIGH;
 	EncoderParameters encoderParameters;
@@ -294,10 +308,10 @@ void wf_myrtille_stop(wfContext* wfc)
 	myrtille->processInputs = false;
 }
 
-void wf_myrtille_connect(wfContext* wfc)
+HANDLE wf_myrtille_connect(wfContext* wfc)
 {
 	if (wfc->context.settings->MyrtilleSessionId == 0)
-		return;
+		return NULL;
 
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
@@ -306,23 +320,82 @@ void wf_myrtille_connect(wfContext* wfc)
 	if (result != 0)
 	{
 		WLog_ERR(TAG, "wf_myrtille_connect: failed to connect session %i with error %d", wfc->context.settings->MyrtilleSessionId, result);
-		return;
+		return NULL;
 	}
 
 	WLog_INFO(TAG, "wf_myrtille_connect: connected session %i", wfc->context.settings->MyrtilleSessionId);
 
 	// process inputs
-	DWORD threadId;
-	if (CreateThread(NULL, 0, ProcessInputsPipe, (void*)wfc, 0, &threadId) == NULL)
+	HANDLE thread;
+	if ((thread = CreateThread(NULL, 0, processInputsPipe, (void*)wfc, 0, &wfc->mainThreadId)) == NULL)
 	{
-		WLog_ERR(TAG, "wf_myrtille_connect: CreateThread failed for inputs pipe with error %d", GetLastError());
-		return;
+		WLog_ERR(TAG, "wf_myrtille_connect: CreateThread failed for processInputsPipe with error %d", GetLastError());
+		return NULL;
 	}
+
+	return thread;
+}
+
+void wf_myrtille_send_screen(wfContext* wfc)
+{
+	if (wfc->context.settings->MyrtilleSessionId == 0)
+		return;
+
+	if (!wfc->primary || !wfc->primary->hdc)
+		return;
+
+	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
+
+	// --------------------------- retrieve the fullscreen bitmap ---------------------------------
+
+	int cw, ch, dw, dh;
+	cw = myrtille->clientWidth;
+	ch = myrtille->clientHeight;
+	dw = wfc->context.settings->DesktopWidth;
+	dh = wfc->context.settings->DesktopHeight;
+
+	HDC hdc = CreateCompatibleDC(wfc->primary->hdc);
+	HBITMAP hbmp = CreateCompatibleBitmap(wfc->primary->hdc, myrtille->scaleDisplay ? cw : dw, myrtille->scaleDisplay ? ch : dh);
+	SelectObject(hdc, hbmp);
+
+	if (!myrtille->scaleDisplay || (cw == dw && ch == dh))
+	{
+		BitBlt(hdc, 0, 0, dw, dh, wfc->primary->hdc, 0, 0, SRCCOPY);
+	}
+	else
+	{
+		SetStretchBltMode(hdc, HALFTONE);
+		SetBrushOrgEx(hdc, 0, 0, NULL);
+		StretchBlt(hdc, 0, 0, cw, ch, wfc->primary->hdc, 0, 0, dw, dh, SRCCOPY);
+	}
+
+	// debug, if needed
+	//WLog_INFO(TAG, "wf_myrtille_send_screen");
+
+	Gdiplus::Bitmap *bmpScreen = Gdiplus::Bitmap::FromHBITMAP(hbmp, (HPALETTE)0);
+
+	// ---------------------------  process it ----------------------------------------------------
+
+	processImage(wfc, bmpScreen, 0, 0, myrtille->scaleDisplay ? cw : dw, myrtille->scaleDisplay ? ch : dh, true);
+
+	// ---------------------------  cleanup -------------------------------------------------------
+
+	delete bmpScreen;
+	bmpScreen = NULL;
+
+	DeleteObject(hbmp);
+	hbmp = NULL;
+
+	DeleteDC(hdc);
+	hdc = NULL;
 }
 
 void wf_myrtille_send_region(wfContext* wfc, RECT region)
 {
 	if (wfc->context.settings->MyrtilleSessionId == 0)
+		return;
+
+	if (!wfc->primary || !wfc->primary->hdc)
 		return;
 
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
@@ -433,6 +506,9 @@ void wf_myrtille_send_region(wfContext* wfc, RECT region)
 void wf_myrtille_send_cursor(wfContext* wfc)
 {
 	if (wfc->context.settings->MyrtilleSessionId == 0)
+		return;
+
+	if (!wfc->primary || !wfc->primary->hdc)
 		return;
 
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
@@ -603,11 +679,11 @@ void wf_myrtille_send_clipboard(wfContext* wfc, BYTE* data, UINT32 length)
 	DWORD bytesWritten;
 	if (WriteFile(myrtille->updatesPipe, myrtille->clipboardText.c_str(), myrtille->clipboardText.length(), &bytesWritten, NULL) == 0)
 	{
-		WLog_ERR(TAG, "ProcessInputsPipe: WriteFile failed for clipboard with error %d", GetLastError());
+		WLog_ERR(TAG, "wf_myrtille_send_clipboard: WriteFile failed for clipboard with error %d", GetLastError());
 	}
 }
 
-int GetEncoderClsid(const WCHAR* format, CLSID* pClsid)
+int getEncoderClsid(const WCHAR* format, CLSID* pClsid)
 {
 	UINT  num = 0;          // number of image encoders
 	UINT  size = 0;         // size of the image encoder array in bytes
@@ -788,7 +864,7 @@ std::vector<std::string> split(const std::string &s, char delim)
 	return split(s, delim, elems);
 }
 
-DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
+DWORD WINAPI processInputsPipe(LPVOID lpParameter)
 {
 	wfContext* wfc = (wfContext*)lpParameter;
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
@@ -805,27 +881,27 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 			switch (GetLastError())
 			{
 				case ERROR_INVALID_HANDLE:
-					WLog_ERR(TAG, "ProcessInputsPipe: ReadFile failed with error ERROR_INVALID_HANDLE");
+					WLog_ERR(TAG, "processInputsPipe: ReadFile failed with error ERROR_INVALID_HANDLE");
 					break;
 
 				case ERROR_PIPE_NOT_CONNECTED:
-					WLog_ERR(TAG, "ProcessInputsPipe: ReadFile failed with error ERROR_PIPE_NOT_CONNECTED");
+					WLog_ERR(TAG, "processInputsPipe: ReadFile failed with error ERROR_PIPE_NOT_CONNECTED");
 					break;
 
 				case ERROR_PIPE_BUSY:
-					WLog_ERR(TAG, "ProcessInputsPipe: ReadFile failed with error ERROR_PIPE_BUSY");
+					WLog_ERR(TAG, "processInputsPipe: ReadFile failed with error ERROR_PIPE_BUSY");
 					break;
 
 				case ERROR_BAD_PIPE:
-					WLog_ERR(TAG, "ProcessInputsPipe: ReadFile failed with error ERROR_BAD_PIPE");
+					WLog_ERR(TAG, "processInputsPipe: ReadFile failed with error ERROR_BAD_PIPE");
 					break;
 
 				case ERROR_BROKEN_PIPE:
-					WLog_ERR(TAG, "ProcessInputsPipe: ReadFile failed with error ERROR_BROKEN_PIPE");
+					WLog_ERR(TAG, "processInputsPipe: ReadFile failed with error ERROR_BROKEN_PIPE");
 					break;
 
 				default:
-					WLog_ERR(TAG, "ProcessInputsPipe: ReadFile failed with error %d", GetLastError());
+					WLog_ERR(TAG, "processInputsPipe: ReadFile failed with error %d", GetLastError());
 					break;
 			}
 
@@ -836,21 +912,126 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 		{
 			std::string message(buffer, bytesRead);
 
-			WLog_INFO(TAG, "ProcessInputsPipe: ReadFile succeeded: %s", message.c_str());
-
 			if (bytesRead > 0)
 			{
-				std::vector<std::string> inputs = split(message, ',');
+				std::vector<std::string> inputs = split(message, '\t');
+
+				//WLog_INFO(TAG, "processInputsPipe: ReadFile succeeded, %i command(s)", inputs.size());
 
 				for (int i = 0; i < inputs.size(); i++)
 				{
 					COMMAND command = commandMap[inputs[i].substr(0, 3)];
 					std::string commandArgs = inputs[i].substr(3, inputs[i].length() - 3);
 
+					// for safety sake, don't log passwords
+					if (command != COMMAND::SEND_USER_PASSWORD)
+					{
+						WLog_INFO(TAG, "processInputsPipe: %s", inputs[i].c_str());
+					}
+
 					int separatorIdx;
 
 					switch (command)
 					{
+						// server address
+						case COMMAND::SEND_SERVER_ADDRESS:
+							
+							const char* p;
+							const char* p2;
+							int length;
+							
+							free(wfc->context.settings->ServerHostname);
+							wfc->context.settings->ServerHostname = NULL;
+							p = strchr(commandArgs.c_str(), '[');
+							
+							/* ipv4 */
+							if (!p)
+							{
+								p = strchr(commandArgs.c_str(), ':');
+
+								if (p)
+								{
+									length = (int)(p - commandArgs.c_str());
+									wfc->context.settings->ServerPort = atoi(&p[1]);
+
+									if (wfc->context.settings->ServerHostname = (char*)calloc(length + 1UL, sizeof(char)))
+									{
+										strncpy(wfc->context.settings->ServerHostname, commandArgs.c_str(), length);
+										wfc->context.settings->ServerHostname[length] = '\0';
+									}
+								}
+								else
+								{
+									wfc->context.settings->ServerHostname = _strdup(commandArgs.c_str());
+								}
+							}
+							else /* ipv6 */
+							{
+								p2 = strchr(commandArgs.c_str(), ']');
+
+								/* valid [] ipv6 addr found */
+								if (p2)
+								{
+									length = p2 - p;
+
+									if (wfc->context.settings->ServerHostname = (char*)calloc(length, sizeof(char)))
+									{
+										strncpy(wfc->context.settings->ServerHostname, p + 1, length - 1);
+
+										if (*(p2 + 1) == ':')
+										{
+											wfc->context.settings->ServerPort = atoi(&p2[2]);
+										}
+									}
+								}
+							}
+							break;
+
+						// user domain
+						case COMMAND::SEND_USER_DOMAIN:
+							free(wfc->context.settings->Domain);
+							wfc->context.settings->Domain = _strdup(commandArgs.c_str());
+							break;
+
+						// user name
+						case COMMAND::SEND_USER_NAME:							
+							char* user;
+							user = _strdup(commandArgs.c_str());
+							if (user)
+							{
+								free(wfc->context.settings->Username);
+								if (!wfc->context.settings->Domain && user)
+								{
+									free(wfc->context.settings->Domain);
+									freerdp_parse_username(user, &wfc->context.settings->Username, &wfc->context.settings->Domain);
+									free(user);
+								}
+								else
+									wfc->context.settings->Username = user;
+							}
+							break;
+
+						// user password
+						case COMMAND::SEND_USER_PASSWORD:
+							free(wfc->context.settings->Password);
+							wfc->context.settings->Password = _strdup(commandArgs.c_str());
+							break;
+
+						// start program
+						case COMMAND::SEND_START_PROGRAM:
+							free(wfc->context.settings->AlternateShell);
+							wfc->context.settings->AlternateShell = _strdup(commandArgs.c_str());
+							break;
+
+						// connect rdp
+						case COMMAND::CONNECT_RDP_CLIENT:
+							DWORD threadId;
+							if (CreateThread(NULL, 0, wf_client_thread, (void*)wfc->context.instance, 0, &threadId) == NULL)
+							{
+								WLog_ERR(TAG, "processInputsPipe: CreateThread failed for wf_client_thread with error %d", GetLastError());
+							}
+							break;
+
 						// browser resize
 						case COMMAND::SEND_BROWSER_RESIZE:
 							separatorIdx = commandArgs.find("x");
@@ -871,48 +1052,54 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 								std::string pressed = commandArgs.substr(separatorIdx + 1, 1);
 								// character key
 								if (command == COMMAND::SEND_KEY_UNICODE)
-									wfc->context.input->UnicodeKeyboardEvent(wfc->context.input, (pressed == "1" ? KBD_FLAGS_DOWN : KBD_FLAGS_RELEASE), atoi(keyCode.c_str()));
+								{
+									if (wfc->context.input->UnicodeKeyboardEvent)
+										wfc->context.input->UnicodeKeyboardEvent(wfc->context.input, (pressed == "1" ? KBD_FLAGS_DOWN : KBD_FLAGS_RELEASE), atoi(keyCode.c_str()));
+								}
 								// non character key
 								else
-									wfc->context.input->KeyboardEvent(wfc->context.input, (pressed == "1" ? KBD_FLAGS_DOWN : KBD_FLAGS_RELEASE), atoi(keyCode.c_str()));
+								{
+									if (wfc->context.input->KeyboardEvent)
+										wfc->context.input->KeyboardEvent(wfc->context.input, (pressed == "1" ? KBD_FLAGS_DOWN : KBD_FLAGS_RELEASE), atoi(keyCode.c_str()));
+								}
 							}
 							break;
 
 						// mouse move
 						case COMMAND::SEND_MOUSE_MOVE:
-							ProcessMouseInput(wfc, commandArgs, PTR_FLAGS_MOVE);
+							processMouseInput(wfc, commandArgs, PTR_FLAGS_MOVE);
 							break;
 
 						// mouse left button
 						case COMMAND::SEND_MOUSE_LEFT_BUTTON:
-							ProcessMouseInput(wfc, commandArgs.substr(1, commandArgs.length() - 1), commandArgs.substr(0, 1) == "0" ? PTR_FLAGS_BUTTON1 : PTR_FLAGS_DOWN | PTR_FLAGS_BUTTON1);
+							processMouseInput(wfc, commandArgs.substr(1, commandArgs.length() - 1), commandArgs.substr(0, 1) == "0" ? PTR_FLAGS_BUTTON1 : PTR_FLAGS_DOWN | PTR_FLAGS_BUTTON1);
 							break;
 
 						// mouse middle button
 						case COMMAND::SEND_MOUSE_MIDDLE_BUTTON:
-							ProcessMouseInput(wfc, commandArgs.substr(1, commandArgs.length() - 1), commandArgs.substr(0, 1) == "0" ? PTR_FLAGS_BUTTON3 : PTR_FLAGS_DOWN | PTR_FLAGS_BUTTON3);
+							processMouseInput(wfc, commandArgs.substr(1, commandArgs.length() - 1), commandArgs.substr(0, 1) == "0" ? PTR_FLAGS_BUTTON3 : PTR_FLAGS_DOWN | PTR_FLAGS_BUTTON3);
 							break;
 
 						// mouse right button
 						case COMMAND::SEND_MOUSE_RIGHT_BUTTON:
-							ProcessMouseInput(wfc, commandArgs.substr(1, commandArgs.length() - 1), commandArgs.substr(0, 1) == "0" ? PTR_FLAGS_BUTTON2 : PTR_FLAGS_DOWN | PTR_FLAGS_BUTTON2);
+							processMouseInput(wfc, commandArgs.substr(1, commandArgs.length() - 1), commandArgs.substr(0, 1) == "0" ? PTR_FLAGS_BUTTON2 : PTR_FLAGS_DOWN | PTR_FLAGS_BUTTON2);
 							break;
 
 						// mouse wheel up
 						case COMMAND::SEND_MOUSE_WHEEL_UP:
-							ProcessMouseInput(wfc, commandArgs, PTR_FLAGS_WHEEL | 0x0078);
+							processMouseInput(wfc, commandArgs, PTR_FLAGS_WHEEL | 0x0078);
 							break;
 						
 						// mouse wheel down
 						case COMMAND::SEND_MOUSE_WHEEL_DOWN:
-							ProcessMouseInput(wfc, commandArgs, PTR_FLAGS_WHEEL | PTR_FLAGS_WHEEL_NEGATIVE | 0x0088);
+							processMouseInput(wfc, commandArgs, PTR_FLAGS_WHEEL | PTR_FLAGS_WHEEL_NEGATIVE | 0x0088);
 							break;
 
 						// stat/debug/compatibility mode
 						case COMMAND::SET_STAT_MODE:
 						case COMMAND::SET_DEBUG_MODE:
 						case COMMAND::SET_COMPATIBILITY_MODE:
-							sendText(wfc, "reload");
+							sendMessage(wfc, "reload");
 							break;
 
 						// scale display
@@ -924,7 +1111,7 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 								myrtille->clientWidth = stoi(commandArgs.substr(0, separatorIdx));
 								myrtille->clientHeight = stoi(commandArgs.substr(separatorIdx + 1, commandArgs.length() - separatorIdx - 1));
 							}
-							sendText(wfc, "reload");
+							sendMessage(wfc, "reload");
 							break;
 
 						// image encoding
@@ -947,7 +1134,7 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 
 						// fullscreen update
 						case COMMAND::REQUEST_FULLSCREEN_UPDATE:
-							sendFullscreen(wfc);
+							wf_myrtille_send_screen(wfc);
 							break;
 
 						// clipboard text
@@ -956,7 +1143,7 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 							{
 								if (!wfc->cliprdr || !wfc->cliprdr->ClientFormatDataRequest)
 								{
-									WLog_INFO(TAG, "ProcessInputsPipe: clipboard redirect is disabled, request cancelled");
+									WLog_INFO(TAG, "processInputsPipe: clipboard redirect is disabled, request cancelled");
 								}
 								else
 								{
@@ -970,7 +1157,7 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 								DWORD bytesWritten;
 								if (WriteFile(myrtille->updatesPipe, myrtille->clipboardText.c_str(), myrtille->clipboardText.length(), &bytesWritten, NULL) == 0)
 								{
-									WLog_ERR(TAG, "ProcessInputsPipe: WriteFile failed for clipboard with error %d", GetLastError());
+									WLog_ERR(TAG, "processInputsPipe: WriteFile failed for clipboard with error %d", GetLastError());
 								}
 							}
 							break;
@@ -990,12 +1177,14 @@ DWORD WINAPI ProcessInputsPipe(LPVOID lpParameter)
 	CloseHandle(myrtille->updatesPipe);
 	GdiplusShutdown(myrtille->gdiplusToken);
 	exit(EXIT_SUCCESS);
-
 	return 0;
 }
 
-void ProcessMouseInput(wfContext* wfc, std::string input, UINT16 flags)
+void processMouseInput(wfContext* wfc, std::string input, UINT16 flags)
 {
+	if (!wfc->context.input->MouseEvent)
+		return;
+
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
 	int separatorIdx = input.find("-");
@@ -1031,63 +1220,15 @@ void ProcessMouseInput(wfContext* wfc, std::string input, UINT16 flags)
 	}
 }
 
-void sendText(wfContext* wfc, std::string text)
+void sendMessage(wfContext* wfc, std::string msg)
 {
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
 	DWORD bytesWritten;
-	if (WriteFile(myrtille->updatesPipe, text.c_str(), text.length(), &bytesWritten, NULL) == 0)
+	if (WriteFile(myrtille->updatesPipe, msg.c_str(), msg.length(), &bytesWritten, NULL) == 0)
 	{
-		WLog_ERR(TAG, "ProcessInputsPipe: WriteFile failed for sendText: %s with error %d", text, GetLastError());
+		WLog_ERR(TAG, "sendMessage: WriteFile failed for message: %s with error %d", msg, GetLastError());
 	}
-}
-
-void sendFullscreen(wfContext* wfc)
-{
-	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
-
-	// --------------------------- retrieve the fullscreen bitmap ---------------------------------
-
-	int cw, ch, dw, dh;
-	cw = myrtille->clientWidth;
-	ch = myrtille->clientHeight;
-	dw = wfc->context.settings->DesktopWidth;
-	dh = wfc->context.settings->DesktopHeight;
-
-	HDC hdc = CreateCompatibleDC(wfc->primary->hdc);
-	HBITMAP hbmp = CreateCompatibleBitmap(wfc->primary->hdc, myrtille->scaleDisplay ? cw : dw, myrtille->scaleDisplay ? ch : dh);
-	SelectObject(hdc, hbmp);
-
-	if (!myrtille->scaleDisplay || (cw == dw && ch == dh))
-	{
-		BitBlt(hdc,	0, 0, dw, dh, wfc->primary->hdc, 0,	0, SRCCOPY);
-	}
-	else
-	{
-		SetStretchBltMode(hdc, HALFTONE);
-		SetBrushOrgEx(hdc, 0, 0, NULL);
-		StretchBlt(hdc,	0, 0, cw, ch, wfc->primary->hdc, 0,	0, dw, dh, SRCCOPY);
-	}
-
-	// debug, if needed
-	//WLog_INFO(TAG, "SendFullscreen");
-
-	Gdiplus::Bitmap *bmpScreen = Gdiplus::Bitmap::FromHBITMAP(hbmp, (HPALETTE)0);
-
-	// ---------------------------  process it ----------------------------------------------------
-
-	processImage(wfc, bmpScreen, 0, 0, myrtille->scaleDisplay ? cw : dw, myrtille->scaleDisplay ? ch : dh, true);
-
-	// ---------------------------  cleanup -------------------------------------------------------
-
-	delete bmpScreen;
-	bmpScreen = NULL;
-
-	DeleteObject(hbmp);
-	hbmp = NULL;
-
-	DeleteDC(hdc);
-	hdc = NULL;
 }
 
 void processImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int left, int top, int right, int bottom, bool fullscreen)
@@ -1101,7 +1242,8 @@ void processImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int left, int top, int r
 	STATSTG statstg;
 
 	int format;
-	int quality = (fullscreen ? (int)IMAGE_QUALITY::HIGHER : myrtille->imageQuality);	// use higher quality for fullscreen updates; otherwise current
+	// PNG: use highest quality (lossless); AUTO/JPEG/WEBP: use higher quality for fullscreen updates or current quality otherwise
+	int quality = (myrtille->imageEncoding == (int)IMAGE_ENCODING::PNG ? (int)IMAGE_QUALITY::HIGHEST : (fullscreen ? (int)IMAGE_QUALITY::HIGHER : myrtille->imageQuality));
 	IStream* stream = NULL;
 	ULONG size = 0;
 
@@ -1163,7 +1305,7 @@ void processImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int left, int top, int r
 		// --------------------------- convert the bitmap into WEBP -------------------------------
 
 		CreateStreamOnHGlobal(NULL, TRUE, &webpStream);
-		WebPEncoder(wfc, bmp, myrtille->imageIdx + 1, webpStream, quality, fullscreen);
+		webPEncoder(wfc, bmp, myrtille->imageIdx + 1, webpStream, quality, fullscreen);
 
 		webpStream->Stat(&statstg, STATFLAG_DEFAULT);
 		ULONG webpSize = (ULONG)statstg.cbSize.LowPart;
@@ -1269,7 +1411,7 @@ void sendImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int posX, int posY
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
 	// image structure: tag (4 bytes) + info (32 bytes) + data
-	// > tag is used to identify an image (0: image; text message otherwise)
+	// > tag is used to identify an image (0: image; other: message)
 	// > info contains the image metadata (idx, posX, posY, etc.)
 	// > data is the image raw data
 
@@ -1308,27 +1450,27 @@ void sendImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int posX, int posY
 		switch (GetLastError())
 		{
 			case ERROR_INVALID_HANDLE:
-				WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_INVALID_HANDLE");
+				WLog_ERR(TAG, "sendImage: WriteFile failed with error ERROR_INVALID_HANDLE");
 				break;
 
 			case ERROR_PIPE_NOT_CONNECTED:
-				WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_PIPE_NOT_CONNECTED");
+				WLog_ERR(TAG, "sendImage: WriteFile failed with error ERROR_PIPE_NOT_CONNECTED");
 				break;
 
 			case ERROR_PIPE_BUSY:
-				WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_PIPE_BUSY");
+				WLog_ERR(TAG, "sendImage: WriteFile failed with error ERROR_PIPE_BUSY");
 				break;
 
 			case ERROR_BAD_PIPE:
-				WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_BAD_PIPE");
+				WLog_ERR(TAG, "sendImage: WriteFile failed with error ERROR_BAD_PIPE");
 				break;
 
 			case ERROR_BROKEN_PIPE:
-				WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error ERROR_BROKEN_PIPE");
+				WLog_ERR(TAG, "sendImage: WriteFile failed with error ERROR_BROKEN_PIPE");
 				break;
 
 			default:
-				WLog_ERR(TAG, "ImagesPipe: WriteFile failed with error %d", GetLastError());
+				WLog_ERR(TAG, "sendImage: WriteFile failed with error %d", GetLastError());
 				break;
 		}
 
@@ -1361,7 +1503,7 @@ void int32ToBytes(int value, int startIndex, byte* bytes)
 	bytes[startIndex + 3] = (value >> 24) & 0xFF;
 }
 
-void WebPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, IStream* stream, float quality, bool fullscreen)
+void webPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, IStream* stream, float quality, bool fullscreen)
 {
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
@@ -1382,7 +1524,7 @@ void WebPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, IStream* stream,
 		//}
 
 		webpPic.custom_ptr = (void*)stream;
-		webpPic.writer = WebPWriter;
+		webpPic.writer = webPWriter;
 
 		webpPic.width = bmp->GetWidth();
 		webpPic.height = bmp->GetHeight();
@@ -1398,7 +1540,7 @@ void WebPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, IStream* stream,
 			myrtille->webpConfig.quality = quality;
 
 			if (!WebPEncode(&myrtille->webpConfig, &webpPic))
-				WLog_ERR(TAG, "WebpEncode: WebP encoding failed");
+				WLog_ERR(TAG, "webPEncoder: WebP encoding failed");
 		}
 
 		bmp->UnlockBits(bmpData);
@@ -1418,7 +1560,7 @@ void WebPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, IStream* stream,
 	}
 }
 
-static int WebPWriter(const uint8_t* data, size_t data_size, const WebPPicture* const pic)
+static int webPWriter(const uint8_t* data, size_t data_size, const WebPPicture* const pic)
 {
 	IStream* stream = (IStream*)pic->custom_ptr;
 
