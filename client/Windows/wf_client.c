@@ -723,9 +723,19 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 	wfc = (wfContext*) instance->context;
 
 	if (!freerdp_connect(instance))
-		return 0;
 
 	#pragma region Myrtille
+
+	{
+		if (context->settings->MyrtilleSessionId == 0)
+		{
+			return 0;
+		}
+		else
+		{
+			ExitProcess(0);
+		}
+	}
 
 	if (context->settings->MyrtilleSessionId != 0)
 	{
