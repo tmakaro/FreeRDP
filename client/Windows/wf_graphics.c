@@ -305,7 +305,21 @@ static BOOL wf_Pointer_Set(rdpContext* context, const rdpPointer* pointer)
 
 	if (hCur != NULL)
 	{
+		#pragma region Myrtille
+
+		if (wfc->context.settings->MyrtilleSessionId == 0 || wfc->context.settings->MyrtilleShowWindow)
+		{
+
+		#pragma endregion
+
 		SetCursor(hCur);
+
+		#pragma region Myrtille
+
+		}
+
+		#pragma endregion
+
 		wfc->cursor = hCur;
 	}
 	

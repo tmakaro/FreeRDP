@@ -199,8 +199,23 @@ static BOOL wf_desktop_resize(rdpContext* context)
 	else
 	{
 		wf_update_offset(wfc);
+
+		#pragma region Myrtille
+
+		// TODO: pull request to FreeRDP master
+		if (wfc->hwnd)
+		{
+		
+		#pragma endregion
+
 		GetWindowRect(wfc->hwnd, &rect);
 		InvalidateRect(wfc->hwnd, &rect, TRUE);
+		
+		#pragma region Myrtille
+
+		}
+
+		#pragma endregion
 	}
 
 	return TRUE;
@@ -733,6 +748,8 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 		}
 		else
 		{
+			fclose(stdout);
+			fclose(stderr);
 			ExitProcess(0);
 		}
 	}
@@ -879,6 +896,8 @@ disconnect:
 
 	if (context->settings->MyrtilleSessionId != 0)
 	{
+		fclose(stdout);
+		fclose(stderr);
 		ExitProcess(0);
 	}
 

@@ -49,7 +49,7 @@ std::string getCurrentTime();
 std::string createLogDirectory();
 std::wstring s2ws(const std::string& s);
 DWORD connectRemoteSessionPipes(wfContext* wfc);
-HANDLE connectRemoteSessionPipe(wfContext* wfc, std::string pipeName, DWORD accessMode);
+HANDLE connectRemoteSessionPipe(wfContext* wfc, std::string pipeName, DWORD accessMode, DWORD shareMode);
 std::string createRemoteSessionDirectory(wfContext* wfc);
 void processMouseInput(wfContext* wfc, std::string input, UINT16 flags);
 void sendMessage(wfContext* wfc, std::string msg);
@@ -65,8 +65,6 @@ DWORD WINAPI processInputsPipe(LPVOID lpParameter);
 
 #define TAG CLIENT_TAG("myrtille")
 
-#define INPUTS_PIPE_BUFFER_SIZE 131072		// 128 KB
-#define UPDATES_PIPE_BUFFER_SIZE 1048576	// 1024 KB
 #define IMAGE_COUNT_SAMPLING_RATE 100		// ips sampling (%) less images = lower cpu and bandwidth usage / faster; more = smoother display (skipping images may result in some display inconsistencies). tweaked dynamically to fit the available bandwidth; possible values: 5, 10, 20, 25, 50, 100 (lower = higher drop rate)
 
 // command
@@ -186,8 +184,9 @@ void wf_myrtille_start(wfContext* wfc)
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
 	#if !defined(WITH_DEBUG) && !defined(_DEBUG)
-	// by default, redirect stdout to nothing (same as linux "/dev/null")
+	// by default, redirect stdout and stderr to nothing (same as linux "/dev/null")
 	freopen("nul", "w", stdout);
+	freopen("nul", "w", stderr);
 	#endif
 
 	// debug
@@ -598,7 +597,7 @@ void wf_myrtille_send_cursor(wfContext* wfc)
 	}
 
 	// send
-	if (pngStream != NULL && pngSize > 0 && pngSize <= UPDATES_PIPE_BUFFER_SIZE)
+	if (pngStream != NULL && pngSize > 0)
 	{
 		sendImage(
 			wfc,
@@ -798,14 +797,14 @@ DWORD connectRemoteSessionPipes(wfContext* wfc)
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
 	// connect inputs pipe (commands)
-	if ((myrtille->inputsPipe = connectRemoteSessionPipe(wfc, "inputs", GENERIC_READ)) == INVALID_HANDLE_VALUE)
+	if ((myrtille->inputsPipe = connectRemoteSessionPipe(wfc, "inputs", GENERIC_READ, FILE_SHARE_WRITE)) == INVALID_HANDLE_VALUE)
 	{
 		WLog_ERR(TAG, "connectRemoteSessionPipes: connect failed for inputs pipe with error %d", GetLastError());
 		return GetLastError();
 	}
 
 	// connect updates pipe (region, fullscreen and cursor updates)
-	if ((myrtille->updatesPipe = connectRemoteSessionPipe(wfc, "updates", GENERIC_WRITE)) == INVALID_HANDLE_VALUE)
+	if ((myrtille->updatesPipe = connectRemoteSessionPipe(wfc, "updates", GENERIC_WRITE, FILE_SHARE_READ)) == INVALID_HANDLE_VALUE)
 	{
 		WLog_ERR(TAG, "connectRemoteSessionPipes: connect failed for updates pipe with error %d", GetLastError());
 		return GetLastError();
@@ -814,7 +813,7 @@ DWORD connectRemoteSessionPipes(wfContext* wfc)
 	return 0;
 }
 
-HANDLE connectRemoteSessionPipe(wfContext* wfc, std::string pipeName, DWORD accessMode)
+HANDLE connectRemoteSessionPipe(wfContext* wfc, std::string pipeName, DWORD accessMode, DWORD shareMode)
 {
 	std::stringstream ss;
 	ss << "\\\\.\\pipe\\remotesession_" << wfc->context.settings->MyrtilleSessionId << "_" << pipeName;
@@ -822,7 +821,7 @@ HANDLE connectRemoteSessionPipe(wfContext* wfc, std::string pipeName, DWORD acce
 	std::wstring ws = s2ws(s);
 	LPCWSTR pipeFileName = ws.c_str();
 
-	return CreateFile(pipeFileName, accessMode, 0, NULL, OPEN_EXISTING, 0, NULL);
+	return CreateFile(pipeFileName, accessMode, shareMode, NULL, OPEN_EXISTING, FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH, NULL);
 }
 
 std::string createRemoteSessionDirectory(wfContext* wfc)
@@ -872,11 +871,11 @@ DWORD WINAPI processInputsPipe(LPVOID lpParameter)
 	// main loop
 	while (myrtille->processInputs)
 	{
-		CHAR buffer[INPUTS_PIPE_BUFFER_SIZE];
+		CHAR buffer[4096];
 		DWORD bytesRead;
 
 		// wait for inputs pipe event
-		if (ReadFile(myrtille->inputsPipe, buffer, INPUTS_PIPE_BUFFER_SIZE, &bytesRead, NULL) == 0)
+		if (ReadFile(myrtille->inputsPipe, buffer, sizeof(buffer), &bytesRead, NULL) == 0)
 		{
 			switch (GetLastError())
 			{
@@ -1176,6 +1175,8 @@ DWORD WINAPI processInputsPipe(LPVOID lpParameter)
 	CloseHandle(myrtille->inputsPipe);
 	CloseHandle(myrtille->updatesPipe);
 	GdiplusShutdown(myrtille->gdiplusToken);
+	fclose(stdout);
+	fclose(stderr);
 	exit(EXIT_SUCCESS);
 	return 0;
 }
@@ -1324,7 +1325,7 @@ void processImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int left, int top, int r
 
 	// in order to avoid overloading both the bandwidth and the browser, images are limited to 1024 KB each
 
-	if (stream != NULL && size > 0 && size <= UPDATES_PIPE_BUFFER_SIZE)
+	if (stream != NULL && size > 0)
 	{
 		sendImage(
 			wfc,
