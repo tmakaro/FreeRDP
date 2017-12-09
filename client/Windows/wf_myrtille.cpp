@@ -56,7 +56,7 @@ void sendMessage(wfContext* wfc, std::string msg);
 void processImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int left, int top, int right, int bottom, bool fullscreen);
 void saveImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int format, int quality, bool fullscreen);
 void sendImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int posX, int posY, int width, int height, int format, int quality, IStream* stream, int size, bool fullscreen);
-void int32ToBytes(int value, int startIndex, byte* bytes);
+void int32ToBytes(int value, int offset, byte* bytes);
 
 void webPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, IStream* stream, float quality, bool fullscreen);
 static int webPWriter(const uint8_t* data, size_t data_size, const WebPPicture* const pic);
@@ -675,11 +675,7 @@ void wf_myrtille_send_clipboard(wfContext* wfc, BYTE* data, UINT32 length)
 	myrtille->clipboardText = ss.str();
 	myrtille->clipboardUpdated = false;
 
-	DWORD bytesWritten;
-	if (WriteFile(myrtille->updatesPipe, myrtille->clipboardText.c_str(), myrtille->clipboardText.length(), &bytesWritten, NULL) == 0)
-	{
-		WLog_ERR(TAG, "wf_myrtille_send_clipboard: WriteFile failed for clipboard with error %d", GetLastError());
-	}
+	sendMessage(wfc, myrtille->clipboardText);
 }
 
 int getEncoderClsid(const WCHAR* format, CLSID* pClsid)
@@ -797,14 +793,14 @@ DWORD connectRemoteSessionPipes(wfContext* wfc)
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
 	// connect inputs pipe (commands)
-	if ((myrtille->inputsPipe = connectRemoteSessionPipe(wfc, "inputs", GENERIC_READ, FILE_SHARE_WRITE)) == INVALID_HANDLE_VALUE)
+	if ((myrtille->inputsPipe = connectRemoteSessionPipe(wfc, "inputs", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE)) == INVALID_HANDLE_VALUE)
 	{
 		WLog_ERR(TAG, "connectRemoteSessionPipes: connect failed for inputs pipe with error %d", GetLastError());
 		return GetLastError();
 	}
 
 	// connect updates pipe (region, fullscreen and cursor updates)
-	if ((myrtille->updatesPipe = connectRemoteSessionPipe(wfc, "updates", GENERIC_WRITE, FILE_SHARE_READ)) == INVALID_HANDLE_VALUE)
+	if ((myrtille->updatesPipe = connectRemoteSessionPipe(wfc, "updates", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE)) == INVALID_HANDLE_VALUE)
 	{
 		WLog_ERR(TAG, "connectRemoteSessionPipes: connect failed for updates pipe with error %d", GetLastError());
 		return GetLastError();
@@ -1153,11 +1149,7 @@ DWORD WINAPI processInputsPipe(LPVOID lpParameter)
 							}
 							else
 							{
-								DWORD bytesWritten;
-								if (WriteFile(myrtille->updatesPipe, myrtille->clipboardText.c_str(), myrtille->clipboardText.length(), &bytesWritten, NULL) == 0)
-								{
-									WLog_ERR(TAG, "processInputsPipe: WriteFile failed for clipboard with error %d", GetLastError());
-								}
+								sendMessage(wfc, myrtille->clipboardText);
 							}
 							break;
 
@@ -1225,8 +1217,19 @@ void sendMessage(wfContext* wfc, std::string msg)
 {
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
 
+	// message size (4 bytes)
+	byte* header = new byte[4];
+	int32ToBytes(msg.length(), 0, header);
+
+	// buffer
+	byte* buffer = new byte[msg.length() + 4];
+	memcpy(buffer, header, 4);
+	memcpy(&buffer[4], msg.c_str(), msg.length());
+
+	// send
+	DWORD bytesToWrite = msg.length() + 4;
 	DWORD bytesWritten;
-	if (WriteFile(myrtille->updatesPipe, msg.c_str(), msg.length(), &bytesWritten, NULL) == 0)
+	if (WriteFile(myrtille->updatesPipe, buffer, bytesToWrite, &bytesWritten, NULL) == 0)
 	{
 		WLog_ERR(TAG, "sendMessage: WriteFile failed for message: %s with error %d", msg, GetLastError());
 	}
@@ -1416,17 +1419,22 @@ void sendImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int posX, int posY
 	// > info contains the image metadata (idx, posX, posY, etc.)
 	// > data is the image raw data
 
-	// tag + info
-	byte* info = new byte[36];
-	int32ToBytes(0, 0, info);
-	int32ToBytes(idx, 4, info);
-	int32ToBytes(posX, 8, info);
-	int32ToBytes(posY, 12, info);
-	int32ToBytes(width, 16, info);
-	int32ToBytes(height, 20, info);
-	int32ToBytes(format, 24, info);
-	int32ToBytes(quality, 28, info);
-	int32ToBytes(fullscreen, 32, info);
+	// image structure size (4 bytes)
+	byte* header = new byte[40];
+	int32ToBytes(size + 36, 0, header);
+
+	// tag
+	int32ToBytes(0, 4, header);
+
+	// info
+	int32ToBytes(idx, 8, header);
+	int32ToBytes(posX, 12, header);
+	int32ToBytes(posY, 16, header);
+	int32ToBytes(width, 20, header);
+	int32ToBytes(height, 24, header);
+	int32ToBytes(format, 28, header);
+	int32ToBytes(quality, 32, header);
+	int32ToBytes(fullscreen, 36, header);
 
 	// seek to the beginning of the stream
 	LARGE_INTEGER li = { 0 };
@@ -1437,16 +1445,20 @@ void sendImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int posX, int posY
 	byte* data = new byte[size];
 	stream->Read(data, size, &bytesRead);
 
-	// tag + info + data
-	byte* buf = new byte[size + 36];
-	memcpy(buf, info, 36);
-	memcpy(&buf[36], data, size);
+	if (bytesRead != size)
+	{
+		WLog_WARN(TAG, "sendImage: number of bytes read from image stream (%d) differs from image size (%d)", bytesRead, size);
+	}
 
-	DWORD bytesToWrite = size + 36;
+	// buffer
+	byte* buffer = new byte[size + 40];
+	memcpy(buffer, header, 40);
+	memcpy(&buffer[40], data, size);
+
+	// send
+	DWORD bytesToWrite = size + 40;
 	DWORD bytesWritten;
-
-	// enqueue it
-	if (WriteFile(myrtille->updatesPipe, buf, bytesToWrite, &bytesWritten, NULL) == 0)
+	if (WriteFile(myrtille->updatesPipe, buffer, bytesToWrite, &bytesWritten, NULL) == 0)
 	{
 		switch (GetLastError())
 		{
@@ -1485,23 +1497,23 @@ void sendImage(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, int posX, int posY
 	//saveImage(wfc, bmp, idx, format, quality, fullscreen);	// debug. enable with caution as it will flood the disk and hinder performance!!!
 
 	// cleanup
-	delete[] buf;
-	buf = NULL;
+	delete[] buffer;
+	buffer = NULL;
 
 	delete[] data;
 	data = NULL;
 
-	delete[] info;
-	info = NULL;
+	delete[] header;
+	header = NULL;
 }
 
-void int32ToBytes(int value, int startIndex, byte* bytes)
+void int32ToBytes(int value, int offset, byte* bytes)
 {
 	// little endian
-	bytes[startIndex] = value & 0xFF;
-	bytes[startIndex + 1] = (value >> 8) & 0xFF;
-	bytes[startIndex + 2] = (value >> 16) & 0xFF;
-	bytes[startIndex + 3] = (value >> 24) & 0xFF;
+	bytes[offset] = value & 0xFF;
+	bytes[offset + 1] = (value >> 8) & 0xFF;
+	bytes[offset + 2] = (value >> 16) & 0xFF;
+	bytes[offset + 3] = (value >> 24) & 0xFF;
 }
 
 void webPEncoder(wfContext* wfc, Gdiplus::Bitmap* bmp, int idx, IStream* stream, float quality, bool fullscreen)
