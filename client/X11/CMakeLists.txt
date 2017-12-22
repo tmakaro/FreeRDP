@@ -44,6 +44,8 @@ set(${MODULE_PREFIX}_SRCS
 	xf_cliprdr.h
 	xf_monitor.c
 	xf_monitor.h
+	xf_disp.c
+	xf_disp.h
 	xf_graphics.c
 	xf_graphics.h
 	xf_keyboard.c
@@ -145,6 +147,10 @@ set(XRENDER_FEATURE_TYPE "RECOMMENDED")
 set(XRENDER_FEATURE_PURPOSE "rendering")
 set(XRENDER_FEATURE_DESCRIPTION "X11 render extension") 
 
+set(XRANDR_FEATURE_TYPE "RECOMMENDED")
+set(XRANDR_FEATURE_PURPOSE "tracking output configuration")
+set(XRANDR_FEATURE_DESCRIPTION "X11 randr extension")
+
 set(XFIXES_FEATURE_TYPE "RECOMMENDED")
 set(XFIXES_FEATURE_PURPOSE "X11 xfixes extension")
 set(XFIXES_FEATURE_DESCRIPTION "Useful additions to the X11 core protocol")
@@ -156,6 +162,7 @@ find_feature(Xcursor ${XCURSOR_FEATURE_TYPE} ${XCURSOR_FEATURE_PURPOSE} ${XCURSO
 find_feature(Xv ${XV_FEATURE_TYPE} ${XV_FEATURE_PURPOSE} ${XV_FEATURE_DESCRIPTION})
 find_feature(Xi ${XI_FEATURE_TYPE} ${XI_FEATURE_PURPOSE} ${XI_FEATURE_DESCRIPTION})
 find_feature(Xrender ${XRENDER_FEATURE_TYPE} ${XRENDER_FEATURE_PURPOSE} ${XRENDER_FEATURE_DESCRIPTION})
+find_feature(XRandR ${XRANDR_FEATURE_TYPE} ${XRANDR_FEATURE_PURPOSE} ${XRANDR_FEATURE_DESCRIPTION})
 find_feature(Xfixes ${XFIXES_FEATURE_TYPE} ${XFIXES_FEATURE_PURPOSE} ${XFIXES_FEATURE_DESCRIPTION})
 
 if(WITH_XINERAMA)
@@ -192,6 +199,12 @@ if(WITH_XRENDER)
 	add_definitions(-DWITH_XRENDER)
 	include_directories(${XRENDER_INCLUDE_DIRS})
 	set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} ${XRENDER_LIBRARIES})
+endif()
+
+if(WITH_XRANDR)
+	add_definitions(-DWITH_XRANDR)
+	include_directories(${XRANDR_INCLUDE_DIRS})
+	set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} ${XRANDR_LIBRARIES})
 endif()
 
 if(WITH_XFIXES)

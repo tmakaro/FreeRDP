@@ -279,6 +279,10 @@ freerdp_connect_finally:
 	EventArgsInit(&e, "freerdp");
 	e.result = status ? 0 : -1;
 	PubSub_OnConnectionResult(instance->context->pubSub, instance->context, &e);
+
+	if (!status)
+		freerdp_disconnect(instance);
+
 	return status;
 }
 
@@ -600,6 +604,8 @@ static wEventType FreeRDP_Events[] =
 	DEFINE_EVENT_ENTRY(ChannelConnected)
 	DEFINE_EVENT_ENTRY(ChannelDisconnected)
 	DEFINE_EVENT_ENTRY(MouseEvent)
+	DEFINE_EVENT_ENTRY(Activated)
+	DEFINE_EVENT_ENTRY(Timer)
 };
 
 /** Allocator function for a rdp context.
@@ -930,7 +936,6 @@ freerdp* freerdp_new()
 	if (!instance)
 		return NULL;
 
-	winpr_InitializeSSL(WINPR_SSL_INIT_DEFAULT);
 	instance->ContextSize = sizeof(rdpContext);
 	instance->SendChannelData = freerdp_send_channel_data;
 	instance->ReceiveChannelData = freerdp_channels_data;

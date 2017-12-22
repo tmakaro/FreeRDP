@@ -609,7 +609,7 @@ static DWORD wf_verify_certificate(freerdp* instance,
 	WLog_INFO(TAG,
 	          "The above X.509 certificate could not be verified, possibly because you do not have "
 	          "the CA certificate in your certificate store, or the certificate has expired. "
-	          "Please look at the documentation on how to create local certificate store for a private CA.");
+	          "Please look at the OpenSSL documentation on how to add a private CA to the store.\n");
 	/* TODO: ask for user validation */
 #if 0
 	input_handle = GetStdHandle(STD_INPUT_HANDLE);
@@ -724,6 +724,7 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 	BOOL msg_ret;
 	int quit_msg;
 	DWORD nCount;
+	DWORD error;
 	HANDLE handles[64];
 	wfContext* wfc;
 	freerdp* instance;
@@ -744,7 +745,7 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 	{
 		if (context->settings->MyrtilleSessionId == 0)
 		{
-			return 0;
+			goto end;
 		}
 		else
 		{
@@ -903,9 +904,11 @@ disconnect:
 
 	#pragma endregion
 
-	WLog_DBG(TAG, "Main thread exited.");
-	ExitThread(0);
-	return 0;
+end:
+	error = freerdp_get_last_error(instance->context);
+	WLog_DBG(TAG, "Main thread exited with %" PRIu32, error);
+	ExitThread(error);
+	return error;
 }
 
 static DWORD WINAPI wf_keyboard_thread(LPVOID lpParam)

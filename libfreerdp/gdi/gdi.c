@@ -356,7 +356,7 @@ INLINE BOOL gdi_decode_color(rdpGdi* gdi, const UINT32 srcColor,
 	if (format)
 		*format = gdi->dstFormat;
 
-	*color = ConvertColor(srcColor, SrcFormat, gdi->dstFormat, &gdi->palette);
+	*color = FreeRDPConvertColor(srcColor, SrcFormat, gdi->dstFormat, &gdi->palette);
 	return TRUE;
 }
 
@@ -509,7 +509,7 @@ static BOOL gdi_palette_update(rdpContext* context,
 	{
 		const PALETTE_ENTRY* pe = &(palette->entries[index]);
 		gdi->palette.palette[index] =
-		    GetColor(gdi->dstFormat, pe->red, pe->green, pe->blue, 0xFF);
+		    FreeRDPGetColor(gdi->dstFormat, pe->red, pe->green, pe->blue, 0xFF);
 	}
 
 	return TRUE;
@@ -603,7 +603,12 @@ static BOOL gdi_patblt(rdpContext* context, PATBLT_ORDER* patblt)
 
 				if (brush->bpp > 1)
 				{
-					brushFormat = gdi_get_pixel_format(brush->bpp);
+					UINT32 bpp = brush->bpp;
+
+					if ((bpp == 16) && (context->settings->ColorDepth == 15))
+						bpp = 15;
+
+					brushFormat = gdi_get_pixel_format(bpp);
 
 					if (!freerdp_image_copy(data, gdi->drawing->hdc->format, 0, 0, 0,
 					                        8, 8, brush->data, brushFormat, 0, 0, 0,
@@ -848,7 +853,12 @@ static BOOL gdi_mem3blt(rdpContext* context, MEM3BLT_ORDER* mem3blt)
 
 				if (brush->bpp > 1)
 				{
-					brushFormat = gdi_get_pixel_format(brush->bpp);
+					UINT32 bpp = brush->bpp;
+
+					if ((bpp == 16) && (context->settings->ColorDepth == 15))
+						bpp = 15;
+
+					brushFormat = gdi_get_pixel_format(bpp);
 
 					if (!freerdp_image_copy(data, gdi->drawing->hdc->format, 0, 0, 0,
 					                        8, 8, brush->data, brushFormat,
@@ -989,13 +999,11 @@ static BOOL gdi_surface_bits(rdpContext* context,
 	           "bpp %"PRIu32" codecID %"PRIu32" width %"PRIu32" height %"PRIu32" length %"PRIu32"",
 	           cmd->destLeft, cmd->destTop, cmd->destRight, cmd->destBottom,
 	           cmd->bpp, cmd->codecID, cmd->width, cmd->height, cmd->bitmapDataLength);
-
 	region16_init(&region);
 	cmdRect.left = cmd->destLeft;
 	cmdRect.top = cmd->destTop;
 	cmdRect.right = cmdRect.left + cmd->width;
 	cmdRect.bottom = cmdRect.top + cmd->height;
-
 
 	switch (cmd->codecID)
 	{
@@ -1009,6 +1017,7 @@ static BOOL gdi_surface_bits(rdpContext* context,
 				WLog_ERR(TAG, "Failed to process RemoteFX message");
 				goto out;
 			}
+
 			break;
 
 		case RDP_CODEC_ID_NSCODEC:
@@ -1023,6 +1032,7 @@ static BOOL gdi_surface_bits(rdpContext* context,
 				WLog_ERR(TAG, "Failed to process NSCodec message");
 				goto out;
 			}
+
 			region16_union_rect(&region, &region, &cmdRect);
 			break;
 
@@ -1037,6 +1047,7 @@ static BOOL gdi_surface_bits(rdpContext* context,
 				WLog_ERR(TAG, "Failed to process nocodec message");
 				goto out;
 			}
+
 			region16_union_rect(&region, &region, &cmdRect);
 			break;
 
@@ -1138,10 +1149,10 @@ static BOOL gdi_init_primary(rdpGdi* gdi, UINT32 stride, UINT32 format,
 		                       buffer, pfree);
 	}
 
-	gdi->stride = gdi->primary->bitmap->scanline;
-
 	if (!gdi->primary->bitmap)
 		goto fail_bitmap;
+
+	gdi->stride = gdi->primary->bitmap->scanline;
 
 	gdi_SelectObject(gdi->primary->hdc, (HGDIOBJECT) gdi->primary->bitmap);
 	gdi->primary->org_bitmap = NULL;
@@ -1236,9 +1247,9 @@ BOOL gdi_init_ex(freerdp* instance, UINT32 format, UINT32 stride, BYTE* buffer,
 	gdi->dstFormat = format;
 	/* default internal buffer format */
 	WLog_Print(gdi->log, WLOG_INFO, "Local framebuffer format  %s",
-	           GetColorFormatName(gdi->dstFormat));
+	           FreeRDPGetColorFormatName(gdi->dstFormat));
 	WLog_Print(gdi->log, WLOG_INFO, "Remote framebuffer format %s",
-	           GetColorFormatName(SrcFormat));
+	           FreeRDPGetColorFormatName(SrcFormat));
 
 	if (!(gdi->hdc = gdi_GetDC()))
 		goto fail;
