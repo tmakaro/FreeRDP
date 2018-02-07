@@ -5,6 +5,10 @@
  * Copyright 2011 Vic Lee
  * Copyright 2011 Marc-Andre Moreau <marcandre.moreau@gmail.com>
  *
+ * Myrtille: A native HTML4/5 Remote Desktop Protocol client
+ *
+ * Copyright(c) 2014-2018 Cedric Coste
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -664,6 +668,13 @@ BIO_METHOD* BIO_s_buffered_socket(void)
 	return bio_methods;
 }
 
+#pragma region Myrtille
+
+// modified the freerdp_tcp_get_ip_address method to use either ipv4 or ipv6 depending on the target
+// the original (disabled) code below works when using an ipv4 address but doesn't when using an ipv6 (return NULL)
+// TODO: report issue to the FreeRDP team
+
+/*
 static char* freerdp_tcp_get_ip_address(int sockfd, BOOL* pIPv6)
 {
 	socklen_t length;
@@ -697,6 +708,58 @@ static char* freerdp_tcp_get_ip_address(int sockfd, BOOL* pIPv6)
 
 	return _strdup(ipAddress);
 }
+*/
+
+static char* freerdp_tcp_get_ip_address(int sockfd, BOOL pIPv6)
+{
+	socklen_t length;
+	struct sockaddr_in sockaddr_ipv4;
+	struct sockaddr_in6 sockaddr_ipv6;
+
+	// ipv4
+	if (!pIPv6)
+	{
+		char ipAddress[INET_ADDRSTRLEN + 1];
+		length = sizeof(sockaddr_ipv4);
+		ZeroMemory(&sockaddr_ipv4, length);
+
+		if (getsockname(sockfd, (struct sockaddr*)&sockaddr_ipv4, &length) != 0)
+			return NULL;
+
+		switch (sockaddr_ipv4.sin_family)
+		{
+		case AF_INET:
+		case AF_INET6:
+			if (!inet_ntop(sockaddr_ipv4.sin_family, &sockaddr_ipv4.sin_addr, ipAddress, sizeof(ipAddress)))
+				return NULL;
+			break;
+
+		case AF_UNIX:
+			strcpy(ipAddress, "127.0.0.1");
+			break;
+
+		default:
+			return NULL;
+		}
+
+		return _strdup(ipAddress);
+	}
+
+	// ipv6
+	char ipAddress[INET6_ADDRSTRLEN + 1];
+	length = sizeof(sockaddr_ipv6);
+	ZeroMemory(&sockaddr_ipv6, length);
+
+	if (getsockname(sockfd, (struct sockaddr*)&sockaddr_ipv6, &length) != 0)
+		return NULL;
+
+	if (!inet_ntop(sockaddr_ipv6.sin6_family, &sockaddr_ipv6.sin6_addr, ipAddress, sizeof(ipAddress)))
+		return NULL;
+
+	return _strdup(ipAddress);
+}
+
+#pragma endregion
 
 static int freerdp_uds_connect(const char* path)
 {
@@ -1158,7 +1221,13 @@ int freerdp_tcp_connect(rdpContext* context, rdpSettings* settings,
 	}
 
 	free(settings->ClientAddress);
-	settings->ClientAddress = freerdp_tcp_get_ip_address(sockfd, &settings->IPv6Enabled);
+
+	#pragma region Myrtille
+
+	//settings->ClientAddress = freerdp_tcp_get_ip_address(sockfd, &settings->IPv6Enabled);
+	settings->ClientAddress = freerdp_tcp_get_ip_address(sockfd, settings->IPv6Enabled);
+	
+	#pragma endregion
 
 	if (!settings->ClientAddress)
 	{
