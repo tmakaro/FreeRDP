@@ -1,8 +1,9 @@
 /**
- * WinPR: Windows Portable Runtime
- * Smart Card API
+ * FreeRDP: A Remote Desktop Protocol Implementation
+ * RemoteFX Codec Library - Decode
  *
- * Copyright 2014 Marc-Andre Moreau <marcandre.moreau@gmail.com>
+ * Copyright 2018 Armin Novak <anovak@thincast.com>
+ * Copyright 2018 Thincast Technologies GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,15 +18,14 @@
  * limitations under the License.
  */
 
-#ifndef WINPR_SMARTCARD_PRIVATE_H
-#define WINPR_SMARTCARD_PRIVATE_H
+#ifndef FREERDP_LIB_CODEC_H264_H
+#define FREERDP_LIB_CODEC_H264_H
 
-#include <winpr/smartcard.h>
+#include <freerdp/api.h>
+#include <freerdp/codec/h264.h>
 
-#ifndef _WIN32
-#include "smartcard_pcsc.h"
-#else
-#include "smartcard_winscard.h"
-#endif
+FREERDP_LOCAL BOOL avc420_ensure_buffer(H264_CONTEXT* h264,
+	UINT32 stride, UINT32 width, UINT32 height);
 
-#endif /* WINPR_SMARTCARD_PRIVATE_H */
+#endif /* FREERDP_LIB_CODEC_H264_H */
+
