@@ -617,6 +617,7 @@ BOOL CryptBinaryToStringA(CONST BYTE* pbBinary, DWORD cbBinary, DWORD dwFlags, L
 #define WINPR_MD4_DIGEST_LENGTH        16
 #define WINPR_MD5_DIGEST_LENGTH        16
 #define WINPR_SHA1_DIGEST_LENGTH       20
+#define WINPR_SHA256_DIGEST_LENGTH     32
 
 
 /**
@@ -670,8 +671,8 @@ WINPR_API BOOL winpr_Digest_Init(WINPR_DIGEST_CTX* ctx, WINPR_MD_TYPE md);
 WINPR_API BOOL winpr_Digest_Update(WINPR_DIGEST_CTX* ctx, const BYTE* input, size_t ilen);
 WINPR_API BOOL winpr_Digest_Final(WINPR_DIGEST_CTX* ctx, BYTE* output, size_t ilen);
 WINPR_API void winpr_Digest_Free(WINPR_DIGEST_CTX* ctx);
-WINPR_API BOOL winpr_Digest_Allow_FIPS(int md, const BYTE* input, size_t ilen, BYTE* output, size_t olen);
-WINPR_API BOOL winpr_Digest(int md, const BYTE* input, size_t ilen, BYTE* output, size_t olen);
+WINPR_API BOOL winpr_Digest_Allow_FIPS(WINPR_MD_TYPE md, const BYTE* input, size_t ilen, BYTE* output, size_t olen);
+WINPR_API BOOL winpr_Digest(WINPR_MD_TYPE md, const BYTE* input, size_t ilen, BYTE* output, size_t olen);
 
 #ifdef __cplusplus
 }

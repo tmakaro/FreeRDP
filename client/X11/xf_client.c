@@ -97,6 +97,7 @@
 #include "xf_input.h"
 #include "xf_cliprdr.h"
 #include "xf_disp.h"
+#include "xf_video.h"
 #include "xf_monitor.h"
 #include "xf_graphics.h"
 #include "xf_keyboard.h"
@@ -288,9 +289,6 @@ static BOOL xf_desktop_resize(rdpContext* context)
 
 static BOOL xf_sw_begin_paint(rdpContext* context)
 {
-	rdpGdi* gdi = context->gdi;
-	gdi->primary->hdc->hwnd->invalid->null = TRUE;
-	gdi->primary->hdc->hwnd->ninvalid = 0;
 	return TRUE;
 }
 
@@ -303,6 +301,10 @@ static BOOL xf_sw_end_paint(rdpContext* context)
 	HGDI_RGN cinvalid;
 	xfContext* xfc = (xfContext*) context;
 	rdpGdi* gdi = context->gdi;
+
+	if (gdi->suppressOutput)
+		return TRUE;
+
 	x = gdi->primary->hdc->hwnd->invalid->x;
 	y = gdi->primary->hdc->hwnd->invalid->y;
 	w = gdi->primary->hdc->hwnd->invalid->w;
@@ -355,6 +357,8 @@ static BOOL xf_sw_end_paint(rdpContext* context)
 		xf_unlock_x11(xfc, FALSE);
 	}
 
+	gdi->primary->hdc->hwnd->invalid->null = TRUE;
+	gdi->primary->hdc->hwnd->ninvalid = 0;
 	return TRUE;
 }
 
@@ -392,9 +396,6 @@ out:
 
 static BOOL xf_hw_begin_paint(rdpContext* context)
 {
-	xfContext* xfc = (xfContext*) context;
-	xfc->hdc->hwnd->invalid->null = TRUE;
-	xfc->hdc->hwnd->ninvalid = 0;
 	return TRUE;
 }
 
@@ -403,6 +404,9 @@ static BOOL xf_hw_end_paint(rdpContext* context)
 	INT32 x, y;
 	UINT32 w, h;
 	xfContext* xfc = (xfContext*) context;
+
+	if (xfc->context.gdi->suppressOutput)
+		return TRUE;
 
 	if (!xfc->remote_app)
 	{
@@ -459,6 +463,8 @@ static BOOL xf_hw_end_paint(rdpContext* context)
 		xf_unlock_x11(xfc, FALSE);
 	}
 
+	xfc->hdc->hwnd->invalid->null = TRUE;
+	xfc->hdc->hwnd->ninvalid = 0;
 	return TRUE;
 }
 
@@ -640,12 +646,6 @@ BOOL xf_create_window(xfContext* xfc)
 
 static void xf_window_free(xfContext* xfc)
 {
-	if (xfc->gc_mono)
-	{
-		XFreeGC(xfc->display, xfc->gc_mono);
-		xfc->gc_mono = 0;
-	}
-
 	if (xfc->window)
 	{
 		xf_DestroyDesktopWindow(xfc, xfc->window);
@@ -675,6 +675,12 @@ static void xf_window_free(xfContext* xfc)
 	{
 		XFreePixmap(xfc->display, xfc->bitmap_mono);
 		xfc->bitmap_mono = 0;
+	}
+
+	if (xfc->gc_mono)
+	{
+		XFreeGC(xfc->display, xfc->gc_mono);
+		xfc->gc_mono = 0;
 	}
 
 	if (xfc->primary)
@@ -1113,9 +1119,9 @@ static BOOL xf_pre_connect(freerdp* instance)
 	settings->OrderSupport[NEG_ELLIPSE_SC_INDEX] = FALSE;
 	settings->OrderSupport[NEG_ELLIPSE_CB_INDEX] = FALSE;
 	PubSub_SubscribeChannelConnected(instance->context->pubSub,
-	                                 (pChannelConnectedEventHandler) xf_OnChannelConnectedEventHandler);
+	                                 xf_OnChannelConnectedEventHandler);
 	PubSub_SubscribeChannelDisconnected(instance->context->pubSub,
-	                                    (pChannelDisconnectedEventHandler) xf_OnChannelDisconnectedEventHandler);
+	                                    xf_OnChannelDisconnectedEventHandler);
 
 	if (!freerdp_client_load_addins(channels, instance->settings))
 		return FALSE;
@@ -1307,6 +1313,11 @@ static void xf_post_disconnect(freerdp* instance)
 		xfc->xfDisp = NULL;
 	}
 
+	if ((xfc->window != NULL) && (xfc->drawable == xfc->window->handle))
+		xfc->drawable = 0;
+	else
+		xf_DestroyDummyWindow(xfc, xfc->drawable);
+
 	xf_window_free(xfc);
 	xf_keyboard_free(xfc);
 }
@@ -1321,7 +1332,7 @@ static int xf_logon_error_info(freerdp* instance, UINT32 data, UINT32 type)
 	return 1;
 }
 
-static void* xf_input_thread(void* arg)
+static DWORD WINAPI xf_input_thread(LPVOID arg)
 {
 	BOOL running = TRUE;
 	DWORD status;
@@ -1400,7 +1411,7 @@ static void* xf_input_thread(void* arg)
 
 	MessageQueue_PostQuit(queue, 0);
 	ExitThread(0);
-	return NULL;
+	return 0;
 }
 
 static BOOL xf_auto_reconnect(freerdp* instance)
@@ -1452,10 +1463,10 @@ static BOOL xf_auto_reconnect(freerdp* instance)
 *  @param instance - pointer to the rdp_freerdp structure that contains the session's settings
 *  @return A code from the enum XF_EXIT_CODE (0 if successful)
 */
-static void* xf_client_thread(void* param)
+static DWORD WINAPI xf_client_thread(LPVOID param)
 {
 	BOOL status;
-	int exit_code;
+	DWORD exit_code = 0;
 	DWORD nCount;
 	DWORD waitStatus;
 	HANDLE handles[64];
@@ -1469,7 +1480,6 @@ static void* xf_client_thread(void* param)
 	rdpSettings* settings;
 	TimerEventArgs timerEvent;
 	EventArgsInit(&timerEvent, "xfreerdp");
-	exit_code = 0;
 	instance = (freerdp*) param;
 	context = instance->context;
 	status = freerdp_connect(instance);
@@ -1511,7 +1521,7 @@ static void* xf_client_thread(void* param)
 	}
 
 	settings = context->settings;
-	timer = CreateWaitableTimerA(NULL, FALSE, NULL);
+	timer = CreateWaitableTimerA(NULL, FALSE, "mainloop-periodic-timer");
 
 	if (!timer)
 	{
@@ -1521,7 +1531,7 @@ static void* xf_client_thread(void* param)
 
 	due.QuadPart = 0;
 
-	if (!SetWaitableTimer(timer, &due, 100, NULL, NULL, FALSE))
+	if (!SetWaitableTimer(timer, &due, 20, NULL, NULL, FALSE))
 	{
 		goto disconnect;
 	}
@@ -1535,8 +1545,7 @@ static void* xf_client_thread(void* param)
 	}
 	else
 	{
-		if (!(inputThread = CreateThread(NULL, 0,
-		                                 (LPTHREAD_START_ROUTINE) xf_input_thread, instance, 0, NULL)))
+		if (!(inputThread = CreateThread(NULL, 0, xf_input_thread, instance, 0, NULL)))
 		{
 			WLog_ERR(TAG, "async input: failed to create input thread");
 			exit_code = XF_EXIT_UNKNOWN;
@@ -1572,7 +1581,7 @@ static void* xf_client_thread(void* param)
 			nCount += tmp;
 		}
 
-		waitStatus = WaitForMultipleObjects(nCount, handles, FALSE, 100);
+		waitStatus = WaitForMultipleObjects(nCount, handles, FALSE, INFINITE);
 
 		if (waitStatus == WAIT_FAILED)
 			break;
@@ -1600,7 +1609,7 @@ static void* xf_client_thread(void* param)
 			}
 		}
 
-		if (status != WAIT_TIMEOUT && WaitForSingleObject(timer, 0))
+		if ((status != WAIT_TIMEOUT) && (waitStatus == WAIT_OBJECT_0))
 		{
 			timerEvent.now = GetTickCount64();
 			PubSub_OnTimer(context->pubSub, context, &timerEvent);
@@ -1624,7 +1633,7 @@ disconnect:
 	freerdp_disconnect(instance);
 end:
 	ExitThread(exit_code);
-	return NULL;
+	return exit_code;
 }
 
 DWORD xf_exit_code_from_disconnect_reason(DWORD reason)
@@ -1645,17 +1654,18 @@ DWORD xf_exit_code_from_disconnect_reason(DWORD reason)
 	return reason;
 }
 
-static void xf_TerminateEventHandler(rdpContext* context, TerminateEventArgs* e)
+static void xf_TerminateEventHandler(void* context, TerminateEventArgs* e)
 {
-	freerdp_abort_connect(context->instance);
+	rdpContext* ctx = (rdpContext*)context;
+	freerdp_abort_connect(ctx->instance);
 }
 
 #ifdef WITH_XRENDER
-static void xf_ZoomingChangeEventHandler(rdpContext* context,
+static void xf_ZoomingChangeEventHandler(void* context,
         ZoomingChangeEventArgs* e)
 {
 	xfContext* xfc = (xfContext*) context;
-	rdpSettings* settings = context->settings;
+	rdpSettings* settings = xfc->context.settings;
 	int w = xfc->scaledWidth + e->dx;
 	int h = xfc->scaledHeight + e->dy;
 
@@ -1676,11 +1686,11 @@ static void xf_ZoomingChangeEventHandler(rdpContext* context,
 	xf_draw_screen(xfc, 0, 0, settings->DesktopWidth, settings->DesktopHeight);
 }
 
-static void xf_PanningChangeEventHandler(rdpContext* context,
+static void xf_PanningChangeEventHandler(void* context,
         PanningChangeEventArgs* e)
 {
 	xfContext* xfc = (xfContext*) context;
-	rdpSettings* settings = context->settings;
+	rdpSettings* settings = xfc->context.settings;
 
 	if (e->dx == 0 && e->dy == 0)
 		return;
@@ -1721,8 +1731,7 @@ static int xfreerdp_client_start(rdpContext* context)
 		return -1;
 	}
 
-	if (!(xfc->thread = CreateThread(NULL, 0,
-	                                 (LPTHREAD_START_ROUTINE) xf_client_thread,
+	if (!(xfc->thread = CreateThread(NULL, 0, xf_client_thread,
 	                                 context->instance, 0, NULL)))
 	{
 		WLog_ERR(TAG, "failed to create client thread");
@@ -1777,12 +1786,12 @@ static BOOL xfreerdp_client_new(freerdp* instance, rdpContext* context)
 	instance->VerifyChangedCertificate = client_cli_verify_changed_certificate;
 	instance->LogonErrorInfo = xf_logon_error_info;
 	PubSub_SubscribeTerminate(context->pubSub,
-	                          (pTerminateEventHandler) xf_TerminateEventHandler);
+	                          xf_TerminateEventHandler);
 #ifdef WITH_XRENDER
 	PubSub_SubscribeZoomingChange(context->pubSub,
-	                              (pZoomingChangeEventHandler) xf_ZoomingChangeEventHandler);
+	                              xf_ZoomingChangeEventHandler);
 	PubSub_SubscribePanningChange(context->pubSub,
-	                              (pPanningChangeEventHandler) xf_PanningChangeEventHandler);
+	                              xf_PanningChangeEventHandler);
 #endif
 	xfc->UseXThreads = TRUE;
 	//xfc->debug = TRUE;

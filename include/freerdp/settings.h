@@ -695,6 +695,7 @@ typedef struct _RDPDR_PARALLEL RDPDR_PARALLEL;
 #define FreeRDP_GatewayRpcTransport				1994
 #define FreeRDP_GatewayHttpTransport				1995
 #define FreeRDP_GatewayUdpTransport				1996
+#define FreeRDP_GatewayAccessToken				1997
 #define FreeRDP_ProxyType					2015
 #define FreeRDP_ProxyHostname					2016
 #define FreeRDP_ProxyPort   					2017
@@ -1160,7 +1161,8 @@ struct rdp_settings
 	ALIGN64 BOOL GatewayRpcTransport; /* 1994 */
 	ALIGN64 BOOL GatewayHttpTransport; /* 1995 */
 	ALIGN64 BOOL GatewayUdpTransport; /* 1996 */
-	UINT64 padding2048[2015 - 1997]; /* 1997 */
+	ALIGN64 char* GatewayAccessToken; /* 1997 */
+	UINT64 padding2015[2015 - 1998]; /* 1998 */
 
 	/* Proxy */
 	ALIGN64 UINT32 ProxyType; 	/* 2015 */
@@ -1432,7 +1434,8 @@ struct rdp_settings
 	ALIGN64 BOOL SupportDisplayControl; /* 5185 */
 	ALIGN64 BOOL SupportGeometryTracking; /* 5186 */
 	ALIGN64 BOOL SupportSSHAgentChannel; /* 5187 */
-	UINT64 padding5312[5312 - 5188]; /* 5188 */
+	ALIGN64 BOOL SupportVideoOptimized; /* 5188 */
+	UINT64 padding5312[5312 - 5189]; /* 5189 */
 
 	/**
 	 * WARNING: End of ABI stable zone!

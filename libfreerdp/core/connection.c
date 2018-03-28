@@ -260,6 +260,9 @@ BOOL rdp_client_connect(rdpRdp* rdp)
 	// of course, the password isn't expired; then the problem seems to be related to openssl, but it's hard to figure out...
 	// as a workaround, waiting this fixed (TODO: report issue to the FreeRDP team), let's use the target IP instead of FQDN
 
+	// EDIT 2018-03-21: reported since and should had been fixed in recent commits (2018-03-14) but the issue still occurs :/
+	// still resolving the target IP...
+
 	if (!resolve_hostname_ip(settings))
 	{
 		WLog_WARN(TAG, "rdp_client_connect: unable to resolve the target IP (%s), please check your DNS configuration", settings->ServerHostname);

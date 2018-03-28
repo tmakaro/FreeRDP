@@ -150,7 +150,7 @@ BOOL freerdp_client_print_command_line_help_ex(int argc, char** argv,
 	printf("Smartcard Redirection: /smartcard:<device>\n");
 	printf("Serial Port Redirection: /serial:<name>,<device>,[SerCx2|SerCx|Serial],[permissive]\n");
 	printf("Serial Port Redirection: /serial:COM1,/dev/ttyS0\n");
-	printf("Parallel Port Redirection: /parallel:<device>\n");
+	printf("Parallel Port Redirection: /parallel:<name>,<device>\n");
 	printf("Printer Redirection: /printer:<device>,<driver>\n");
 	printf("\n");
 	printf("Audio Output Redirection: /sound:sys:oss,dev:1,format:1\n");
@@ -771,6 +771,11 @@ static int freerdp_client_command_line_post_filter(void* context,
 	{
 		settings->SupportGeometryTracking = TRUE;
 	}
+	CommandLineSwitchCase(arg, "video")
+	{
+		settings->SupportGeometryTracking = TRUE; /* this requires geometry tracking */
+		settings->SupportVideoOptimized = TRUE;
+	}
 	CommandLineSwitchCase(arg, "sound")
 	{
 		char** p;
@@ -816,7 +821,7 @@ static int freerdp_client_command_line_post_filter(void* context,
 	return status ? 1 : -1;
 }
 
-BOOL freerdp_parse_username(char* username, char** user, char** domain)
+BOOL freerdp_parse_username(const char* username, char** user, char** domain)
 {
 	char* p;
 	int length = 0;
@@ -870,7 +875,7 @@ BOOL freerdp_parse_username(char* username, char** user, char** domain)
 	return TRUE;
 }
 
-BOOL freerdp_parse_hostname(char* hostname, char** host, int* port)
+BOOL freerdp_parse_hostname(const char* hostname, char** host, int* port)
 {
 	char* p;
 	p = strrchr(hostname, ':');
@@ -1293,12 +1298,25 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 	char* str;
 	size_t length;
 	int status;
-	DWORD flags;
+	BOOL ext = FALSE;
+	BOOL assist = FALSE;
+	DWORD flags = 0;
 	BOOL promptForPassword = FALSE;
-	BOOL compatibility;
+	BOOL compatibility = FALSE;
 	COMMAND_LINE_ARGUMENT_A* arg;
-	compatibility = freerdp_client_detect_command_line(argc, argv, &flags,
-	                allowUnknown);
+
+	/* Command line detection fails if only a .rdp or .msrcIncident file
+	 * is supplied. Check this case first, only then try to detect
+	 * legacy command line syntax. */
+	if (argc > 1)
+	{
+		ext = ends_with(argv[1], ".rdp");
+		assist = ends_with(argv[1], ".msrcIncident");
+	}
+
+	if (!ext && !assist)
+		compatibility = freerdp_client_detect_command_line(argc, argv, &flags,
+		                allowUnknown);
 
 	if (compatibility)
 	{
@@ -1308,27 +1326,19 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 	else
 	{
 		if (allowUnknown)
-		{
 			flags |= COMMAND_LINE_IGN_UNKNOWN_KEYWORD;
+
+		if (ext)
+		{
+			if (freerdp_client_settings_parse_connection_file(settings, argv[1]))
+				return COMMAND_LINE_ERROR_UNEXPECTED_VALUE;
 		}
 
-		if (argc > 1)
+		if (assist)
 		{
-			const BOOL ext = ends_with(argv[1], ".rdp");
-			const BOOL assist = ends_with(argv[1], ".msrcIncident");
-
-			if (ext)
-			{
-				if (freerdp_client_settings_parse_connection_file(settings, argv[1]))
-					return COMMAND_LINE_ERROR_UNEXPECTED_VALUE;
-			}
-
-			if (assist)
-			{
-				if (freerdp_client_settings_parse_assistance_file(settings,
-				        settings->AssistanceFile) < 0)
-					return COMMAND_LINE_ERROR_UNEXPECTED_VALUE;
-			}
+			if (freerdp_client_settings_parse_assistance_file(settings,
+			        argv[1]) < 0)
+				return COMMAND_LINE_ERROR_UNEXPECTED_VALUE;
 		}
 
 		CommandLineClearArgumentsA(args);
@@ -1896,6 +1906,13 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 				settings->GatewayRpcTransport = TRUE;
 				settings->GatewayHttpTransport = TRUE;
 			}
+		}
+		CommandLineSwitchCase(arg, "gat")
+		{
+			free(settings->GatewayAccessToken);
+
+			if (!(settings->GatewayAccessToken = _strdup(arg->Value)))
+				return COMMAND_LINE_ERROR_MEMORY;
 		}
 		CommandLineSwitchCase(arg, "gateway-usage-method")
 		{
@@ -3033,6 +3050,17 @@ BOOL freerdp_client_load_addins(rdpChannels* channels, rdpSettings* settings)
 		int count;
 		count = 1;
 		p[0] = "geometry";
+
+		if (!freerdp_client_add_dynamic_channel(settings, count, p))
+			return FALSE;
+	}
+
+	if (settings->SupportVideoOptimized)
+	{
+		char* p[1];
+		int count;
+		count = 1;
+		p[0] = "video";
 
 		if (!freerdp_client_add_dynamic_channel(settings, count, p))
 			return FALSE;
