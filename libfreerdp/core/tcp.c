@@ -5,10 +5,6 @@
  * Copyright 2011 Vic Lee
  * Copyright 2011 Marc-Andre Moreau <marcandre.moreau@gmail.com>
  *
- * Myrtille: A native HTML4/5 Remote Desktop Protocol client
- *
- * Copyright(c) 2014-2018 Cedric Coste
- *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -668,27 +664,16 @@ BIO_METHOD* BIO_s_buffered_socket(void)
 	return bio_methods;
 }
 
-#pragma region Myrtille
-
-// modified the freerdp_tcp_get_ip_address method to use either ipv4 or ipv6 depending on the target
-// the original (disabled) code below works when using an ipv4 address but doesn't when using an ipv6 (return NULL)
-// TODO: report issue to the FreeRDP team
-
-// EDIT 2018-03-21: reported and fixed since but still using custom code because any connection broker redirection still fails (same openSSL error message)
-// and hence still requires the target IP to be resolved manually; using ipv4 or ipv6 depending of the resolve result
-
-/*
-static char* freerdp_tcp_get_ip_address(int sockfd, BOOL* pIPv6)
+static char* freerdp_tcp_address_to_string(const struct sockaddr_storage* addr, BOOL* pIPv6)
 {
-	socklen_t length;
 	char ipAddress[INET6_ADDRSTRLEN + 1] = { 0 };
-	struct sockaddr saddr = { 0 };
-	struct sockaddr_in6* sockaddr_ipv6 = (struct sockaddr_in6*)&saddr;
-	struct sockaddr_in* sockaddr_ipv4 = (struct sockaddr_in*)&saddr;
-	length = sizeof(struct sockaddr);
+	struct sockaddr_in6* sockaddr_ipv6 = (struct sockaddr_in6*)addr;
+	struct sockaddr_in* sockaddr_ipv4 = (struct sockaddr_in*)addr;
 
-	if (getsockname(sockfd, &saddr, &length) != 0)
+	if (addr == NULL)
+	{
 		return NULL;
+	}
 
 	switch (sockaddr_ipv4->sin_family)
 	{
@@ -712,63 +697,39 @@ static char* freerdp_tcp_get_ip_address(int sockfd, BOOL* pIPv6)
 			return NULL;
 	}
 
-	if (pIPv6)
-		*pIPv6 = (sockaddr_ipv4->sin_family == AF_INET6);
-
-	return _strdup(ipAddress);
-}
-*/
-
-static char* freerdp_tcp_get_ip_address(int sockfd, BOOL pIPv6)
-{
-	socklen_t length;
-	struct sockaddr_in sockaddr_ipv4;
-	struct sockaddr_in6 sockaddr_ipv6;
-
-	// ipv4
-	if (!pIPv6)
+	if (pIPv6 != NULL)
 	{
-		char ipAddress[INET_ADDRSTRLEN + 1];
-		length = sizeof(sockaddr_ipv4);
-		ZeroMemory(&sockaddr_ipv4, length);
-
-		if (getsockname(sockfd, (struct sockaddr*)&sockaddr_ipv4, &length) != 0)
-			return NULL;
-
-		switch (sockaddr_ipv4.sin_family)
-		{
-		case AF_INET:
-		case AF_INET6:
-			if (!inet_ntop(sockaddr_ipv4.sin_family, &sockaddr_ipv4.sin_addr, ipAddress, sizeof(ipAddress)))
-				return NULL;
-			break;
-
-		case AF_UNIX:
-			strcpy(ipAddress, "127.0.0.1");
-			break;
-
-		default:
-			return NULL;
-		}
-
-		return _strdup(ipAddress);
+		*pIPv6 = (sockaddr_ipv4->sin_family == AF_INET6);
 	}
 
-	// ipv6
-	char ipAddress[INET6_ADDRSTRLEN + 1];
-	length = sizeof(sockaddr_ipv6);
-	ZeroMemory(&sockaddr_ipv6, length);
-
-	if (getsockname(sockfd, (struct sockaddr*)&sockaddr_ipv6, &length) != 0)
-		return NULL;
-
-	if (!inet_ntop(sockaddr_ipv6.sin6_family, &sockaddr_ipv6.sin6_addr, ipAddress, sizeof(ipAddress)))
-		return NULL;
-
 	return _strdup(ipAddress);
 }
 
-#pragma endregion
+static char* freerdp_tcp_get_ip_address(int sockfd, BOOL* pIPv6)
+{
+	struct sockaddr_storage saddr = { 0 };
+	socklen_t length = sizeof(struct sockaddr_storage);
+
+	if (getsockname(sockfd, (struct sockaddr*)&saddr, &length) != 0)
+	{
+		return NULL;
+	}
+
+	return freerdp_tcp_address_to_string(&saddr, pIPv6);
+}
+
+char* freerdp_tcp_get_peer_address(int sockfd)
+{
+	struct sockaddr_storage saddr = { 0 };
+	socklen_t length = sizeof(struct sockaddr_storage);
+
+	if (getpeername(sockfd, (struct sockaddr*)&saddr, &length) != 0)
+	{
+		return NULL;
+	}
+
+	return freerdp_tcp_address_to_string(&saddr, NULL);
+}
 
 static int freerdp_uds_connect(const char* path)
 {
@@ -1136,7 +1097,12 @@ int freerdp_tcp_connect(rdpContext* context, rdpSettings* settings,
 	BOOL useExternalDefinedSocket = FALSE;
 
 	if (!hostname)
+	{
+		if (freerdp_get_last_error(context) == FREERDP_ERROR_SUCCESS)
+			freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_FAILED);
+
 		return -1;
+	}
 
 	if (hostname[0] == '/')
 		ipcSocket = TRUE;
@@ -1149,7 +1115,12 @@ int freerdp_tcp_connect(rdpContext* context, rdpSettings* settings,
 		sockfd = freerdp_uds_connect(hostname);
 
 		if (sockfd < 0)
+		{
+			if (freerdp_get_last_error(context) == FREERDP_ERROR_SUCCESS)
+				freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_FAILED);
+
 			return -1;
+		}
 	}
 	else if (useExternalDefinedSocket)
 		sockfd = port;
@@ -1176,6 +1147,7 @@ int freerdp_tcp_connect(rdpContext* context, rdpSettings* settings,
 		if (sockfd <= 0)
 		{
 			char port_str[16];
+			char* peerAddress;
 			struct addrinfo hints;
 			struct addrinfo* addr;
 			struct addrinfo* result;
@@ -1212,8 +1184,17 @@ int freerdp_tcp_connect(rdpContext* context, rdpSettings* settings,
 
 			if (sockfd < 0)
 			{
+				if (freerdp_get_last_error(context) == FREERDP_ERROR_SUCCESS)
+					freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_FAILED);
+
 				freeaddrinfo(result);
 				return -1;
+			}
+
+			if ((peerAddress = freerdp_tcp_address_to_string(addr->ai_addr, NULL)) != NULL)
+			{
+				WLog_DBG(TAG, "connecting to peer %s", peerAddress);
+				free(peerAddress);
 			}
 
 			if (!freerdp_tcp_connect_timeout(context, sockfd, addr->ai_addr,
@@ -1221,6 +1202,10 @@ int freerdp_tcp_connect(rdpContext* context, rdpSettings* settings,
 			{
 				freeaddrinfo(result);
 				close(sockfd);
+
+				if (freerdp_get_last_error(context) == FREERDP_ERROR_SUCCESS)
+					freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_FAILED);
+
 				WLog_ERR(TAG, "failed to connect to %s", hostname);
 				return -1;
 			}
@@ -1230,18 +1215,15 @@ int freerdp_tcp_connect(rdpContext* context, rdpSettings* settings,
 	}
 
 	free(settings->ClientAddress);
-
-	#pragma region Myrtille
-
-	//settings->ClientAddress = freerdp_tcp_get_ip_address(sockfd, &settings->IPv6Enabled);
-	settings->ClientAddress = freerdp_tcp_get_ip_address(sockfd, settings->IPv6Enabled);
-	
-	#pragma endregion
+	settings->ClientAddress = freerdp_tcp_get_ip_address(sockfd, &settings->IPv6Enabled);
 
 	if (!settings->ClientAddress)
 	{
 		if (!useExternalDefinedSocket)
 			close(sockfd);
+
+		if (freerdp_get_last_error(context) == FREERDP_ERROR_SUCCESS)
+			freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_FAILED);
 
 		WLog_ERR(TAG, "Couldn't get socket ip address");
 		return -1;
@@ -1267,6 +1249,10 @@ int freerdp_tcp_connect(rdpContext* context, rdpSettings* settings,
 			if (setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (void*) &optval, optlen) < 0)
 			{
 				close(sockfd);
+
+				if (freerdp_get_last_error(context) == FREERDP_ERROR_SUCCESS)
+					freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_FAILED);
+
 				WLog_ERR(TAG, "unable to set receive buffer len");
 				return -1;
 			}
@@ -1278,6 +1264,10 @@ int freerdp_tcp_connect(rdpContext* context, rdpSettings* settings,
 		if (!freerdp_tcp_set_keep_alive_mode(sockfd))
 		{
 			close(sockfd);
+
+			if (freerdp_get_last_error(context) == FREERDP_ERROR_SUCCESS)
+				freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_FAILED);
+
 			WLog_ERR(TAG, "Couldn't set keep alive mode.");
 			return -1;
 		}
@@ -1286,6 +1276,10 @@ int freerdp_tcp_connect(rdpContext* context, rdpSettings* settings,
 	if (WaitForSingleObject(context->abortEvent, 0) == WAIT_OBJECT_0)
 	{
 		close(sockfd);
+
+		if (freerdp_get_last_error(context) == FREERDP_ERROR_SUCCESS)
+			freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_CANCELLED);
+
 		return -1;
 	}
 

@@ -355,6 +355,13 @@ UINT printer_register(PDEVICE_SERVICE_ENTRY_POINTS pEntryPoints,
 	}
 
 	sprintf_s(port, 10, "PRN%d", printer->id);
+
+	#pragma region Myrtille
+
+	printer->rdpcontext = pEntryPoints->rdpcontext;
+
+	#pragma endregion
+
 	printer_dev = (PRINTER_DEVICE*) calloc(1, sizeof(PRINTER_DEVICE));
 
 	if (!printer_dev)

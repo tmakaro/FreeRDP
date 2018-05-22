@@ -100,15 +100,37 @@ static void printer_win_close_printjob(rdpPrintJob* printjob)
 {
 	rdpWinPrintJob* win_printjob = (rdpWinPrintJob*) printjob;
 
+	#pragma region Myrtille
+
+	// added logs in case of errors
+
 	if (!EndPagePrinter(((rdpWinPrinter*) printjob->printer)->hPrinter))
 	{
-
+		WLog_ERR(PRINTER_TAG, "printer_win_close_printjob: EndPagePrinter failed with error %d", GetLastError());
 	}
 
-	if (!ClosePrinter(((rdpWinPrinter*) printjob->printer)->hPrinter))
+	// closing the printer while closing the print job is not a good idea because any subsequent print jobs will fail
+	// it's the document related to the print job which must be closed...
+
+	//if (!ClosePrinter(((rdpWinPrinter*) printjob->printer)->hPrinter))
+	if (!EndDocPrinter(((rdpWinPrinter*) printjob->printer)->hPrinter))
 	{
-
+		WLog_ERR(PRINTER_TAG, "printer_win_close_printjob: EndDocPrinter failed with error %d", GetLastError());
 	}
+
+	// if using myrtille with its pdf printer, notify the gateway that a new pdf is available
+	if (printjob->printer->rdpcontext->settings->MyrtilleSessionId != 0 && strcmp(printjob->printer->name, "Myrtille PDF") == 0)
+	{
+		RDP_CLIENT_ENTRY_POINTS* pEntryPoints = printjob->printer->rdpcontext->instance->pClientEntryPoints;
+		
+		char* printJobName;
+		if (ConvertFromUnicode(CP_UTF8, 0, win_printjob->di.pDocName, -1, &printJobName, 0, NULL, NULL) >= 1)
+		{
+			IFCALL(pEntryPoints->ClientPrint, printjob->printer->rdpcontext, printJobName);
+		}
+	}
+
+	#pragma endregion
 
 	((rdpWinPrinter*) printjob->printer)->printjob = NULL;
 
@@ -129,7 +151,40 @@ static rdpPrintJob* printer_win_create_printjob(rdpPrinter* printer, UINT32 id)
 
 	win_printjob->printjob.id = id;
 	win_printjob->printjob.printer = printer;
-	win_printjob->di.pDocName = L"FREERDPjob";
+
+	#pragma region Myrtille
+
+	// if using myrtille with its pdf printer, add a unique id to the print job name
+	// the print job handle could be used as identifier but it's only an auto-incremented value (not safe)
+	if (printer->rdpcontext->settings->MyrtilleSessionId != 0 && strcmp(printer->name, "Myrtille PDF") == 0)
+	{
+		char printJobName[30];
+		strcpy(printJobName, "FREERDPjob");
+
+		char pid[10];
+		snprintf(pid, sizeof(pid), "%lu", GetCurrentProcessId());
+		strcat(printJobName, pid);
+
+		char now[10];
+		snprintf(now, sizeof(now), "%lu", GetTickCount());
+		strcat(printJobName, now);
+
+		WCHAR* printJobNameW = NULL;
+		if (printJobName)
+		{
+			ConvertToUnicode(CP_UTF8, 0, printJobName, -1, &printJobNameW, 0);
+			if (!printJobNameW)
+				return NULL;
+		}
+		win_printjob->di.pDocName = printJobNameW;
+	}
+	else
+	{
+		win_printjob->di.pDocName = L"FREERDPjob";
+	}
+
+	#pragma endregion
+
 	win_printjob->di.pDatatype= NULL;
 	win_printjob->di.pOutputFile = NULL;
 
@@ -137,6 +192,12 @@ static rdpPrintJob* printer_win_create_printjob(rdpPrinter* printer, UINT32 id)
 
 	if (!win_printjob->handle)
 	{
+		#pragma region Myrtille
+
+		WLog_ERR(PRINTER_TAG, "printer_win_create_printjob: StartDocPrinter failed with error %d", GetLastError());
+
+		#pragma endregion
+
 		free(win_printjob);
 		return NULL;
 	}
@@ -174,6 +235,17 @@ static void printer_win_free_printer(rdpPrinter* printer)
 
 	if (win_printer->printjob)
 		win_printer->printjob->printjob.Close((rdpPrintJob*) win_printer->printjob);
+
+	#pragma region Myrtille
+
+	// the printer can now be closed
+
+	if (!ClosePrinter(win_printer->hPrinter))
+	{
+		WLog_ERR(PRINTER_TAG, "printer_win_free_printer: ClosePrinter failed with error %d", GetLastError());
+	}
+
+	#pragma endregion
 
 	free(printer->name);
 	free(printer->driver);
@@ -306,6 +378,20 @@ static rdpPrinter* printer_win_get_printer(rdpPrinterDriver* driver,
 	rdpWinPrinterDriver* win_driver = (rdpWinPrinterDriver*)driver;
 	rdpPrinter *myPrinter = NULL;
 	
+	#pragma region Myrtille
+
+	// printer name must be converted to unicode for the "printer_win_new_printer" method
+
+	WCHAR* nameW = NULL;
+	if (name)
+	{
+		ConvertToUnicode(CP_UTF8, 0, name, -1, &nameW, 0);
+		if (!nameW)
+			return NULL;
+	}
+
+	#pragma endregion
+
 	if (driverName)
 	{
 		ConvertToUnicode(CP_UTF8, 0, driverName, -1, &driverNameW, 0);
@@ -313,7 +399,7 @@ static rdpPrinter* printer_win_get_printer(rdpPrinterDriver* driver,
 			return NULL;
 	}
 
-	myPrinter = printer_win_new_printer(win_driver, name, driverNameW,
+	myPrinter = printer_win_new_printer(win_driver, /*name*/nameW, driverNameW,
 	win_driver->id_sequence == 1 ? TRUE : FALSE);
 	free(driverNameW);
 

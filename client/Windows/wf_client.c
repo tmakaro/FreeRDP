@@ -1273,6 +1273,16 @@ static int wfreerdp_client_stop(rdpContext* context)
 	return 0;
 }
 
+#pragma region Myrtille
+
+static void wfreerdp_client_print(rdpContext* context, char* printJobName)
+{
+	wfContext* wfc = (wfContext*)context;
+	wf_myrtille_send_printjob(wfc, printJobName);
+}
+
+#pragma endregion
+
 int RdpClientEntry(RDP_CLIENT_ENTRY_POINTS* pEntryPoints)
 {
 	pEntryPoints->Version = 1;
@@ -1284,5 +1294,12 @@ int RdpClientEntry(RDP_CLIENT_ENTRY_POINTS* pEntryPoints)
 	pEntryPoints->ClientFree = wfreerdp_client_free;
 	pEntryPoints->ClientStart = wfreerdp_client_start;
 	pEntryPoints->ClientStop = wfreerdp_client_stop;
+
+	#pragma region Myrtille
+
+	pEntryPoints->ClientPrint = wfreerdp_client_print;
+
+	#pragma endregion
+
 	return 0;
 }

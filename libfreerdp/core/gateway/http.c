@@ -342,9 +342,6 @@ wStream* http_request_write(HttpContext* context, HttpRequest* request)
 	lines[count++] = http_encode_body_line("User-Agent", context->UserAgent);
 	lines[count++] = http_encode_body_line("Host", context->Host);
 
-	if (!context->RdgAuthScheme)
-		lines[count++] = http_encode_content_length_line(request->ContentLength);
-
 	if (context->RdgConnectionId)
 		lines[count++] = http_encode_body_line("RDG-Connection-Id", context->RdgConnectionId);
 
@@ -352,7 +349,13 @@ wStream* http_request_write(HttpContext* context, HttpRequest* request)
 		lines[count++] = http_encode_body_line("RDG-Auth-Scheme", context->RdgAuthScheme);
 
 	if (request->TransferEncoding)
+	{
 		lines[count++] = http_encode_body_line("Transfer-Encoding", request->TransferEncoding);
+	}
+	else
+	{
+		lines[count++] = http_encode_content_length_line(request->ContentLength);
+	}
 
 	if (request->Authorization)
 	{
@@ -473,7 +476,7 @@ static BOOL http_response_parse_header_field(HttpResponse* response, const char*
 		errno = 0;
 		val = _strtoui64(value, NULL, 0);
 
-		if ((errno != 0) || (val < 0) || (val > INT32_MAX))
+		if ((errno != 0) || (val > INT32_MAX))
 			return FALSE;
 
 		response->ContentLength = val;

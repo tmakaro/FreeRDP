@@ -49,6 +49,13 @@ struct rdp_printer
 	char* driver;
 	BOOL is_default;
 
+	#pragma region Myrtille
+
+	// have the rdp printer aware of the rdp context
+	rdpContext* rdpcontext;
+
+	#pragma endregion
+
 	pcCreatePrintJob CreatePrintJob;
 	pcFindPrintJob FindPrintJob;
 	pcFreePrinter Free;

@@ -60,7 +60,6 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	ZeroMemory(&clientEntryPoints, sizeof(RDP_CLIENT_ENTRY_POINTS));
 	clientEntryPoints.Size = sizeof(RDP_CLIENT_ENTRY_POINTS);
 	clientEntryPoints.Version = RDP_CLIENT_INTERFACE_VERSION;
-	RdpClientEntry(&clientEntryPoints);
 
 	#pragma region Myrtille
 
@@ -68,6 +67,8 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	//Sleep(10000);
 
 	#pragma endregion
+
+	RdpClientEntry(&clientEntryPoints);
 
 	context = freerdp_client_context_new(&clientEntryPoints);
 	if (!context)

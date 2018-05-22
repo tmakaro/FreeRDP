@@ -6,10 +6,6 @@
  * Copyright 2015 Thincast Technologies GmbH
  * Copyright 2015 DI (FH) Martin Haimberger <martin.haimberger@thincast.com>
  *
- * Myrtille: A native HTML4/5 Remote Desktop Protocol client
- *
- * Copyright(c) 2014-2018 Cedric Coste
- *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -171,72 +167,6 @@
  *	and server-side applications).
  */
 
-#pragma region Myrtille
-
-BOOL resolve_hostname_ip(rdpSettings* settings)
-{
-	INT retval;
-
-	struct addrinfo hints;
-	ZeroMemory(&hints, sizeof(hints));
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-
-	struct addrinfo* result = NULL;
-
-	retval = getaddrinfo(settings->ServerHostname, NULL, &hints, &result);
-	if (retval != 0)
-	{
-		return FALSE;
-	}
-
-	BOOL success = FALSE;
-	struct addrinfo* addr = NULL;
-	struct sockaddr_in* sockaddr_ipv4;
-	struct sockaddr_in6* sockaddr_ipv6;
-
-	for (addr = result; addr != NULL; addr = addr->ai_next)
-	{
-		// ipv4
-		if (addr->ai_family == AF_INET)
-		{
-			sockaddr_ipv4 = (struct sockaddr_in*)addr->ai_addr;
-			char ipAddress[INET_ADDRSTRLEN + 1];
-			if (inet_ntop(sockaddr_ipv4->sin_family, &sockaddr_ipv4->sin_addr, ipAddress, sizeof(ipAddress)))
-			{
-				free(settings->ServerHostname);
-				settings->ServerHostname = _strdup(ipAddress);
-				settings->IPv6Enabled = FALSE;
-				success = TRUE;
-			}
-			break;
-		}
-		// ipv6
-		else if (addr->ai_family == AF_INET6)
-		{
-			// bypass link-local ipv6
-			if (addr->ai_next->ai_family == AF_INET6)
-				continue;
-
-			sockaddr_ipv6 = (struct sockaddr_in6*)addr->ai_addr;
-			char ipAddress[INET6_ADDRSTRLEN + 1];
-			if (inet_ntop(sockaddr_ipv6->sin6_family, &sockaddr_ipv6->sin6_addr, ipAddress, sizeof(ipAddress)))
-			{
-				free(settings->ServerHostname);
-				settings->ServerHostname = _strdup(ipAddress);
-				settings->IPv6Enabled = TRUE;
-				success = TRUE;
-			}
-			break;
-		}
-	}
-
-	freeaddrinfo(result);
-	return success;
-}
-
-#pragma endregion
-
 /**
  * Establish RDP Connection based on the settings given in the 'rdp' parameter.
  * @msdn{cc240452}
@@ -248,27 +178,6 @@ BOOL rdp_client_connect(rdpRdp* rdp)
 {
 	BOOL status;
 	rdpSettings* settings = rdp->settings;
-
-	#pragma region Myrtille
-
-	// starting with FreeRDP 2.0 RC0, there is an issue connecting servers using FQDN (either directly or through a connection broker redirection), while it works well using IP
-
-	// the logged errors are (in order):
-	// - [ERROR][com.freerdp.core] - freerdp_set_last_error ERRCONNECT_PASSWORD_CERTAINLY_EXPIRED [0x0002000F] (libfreerdp\core\transport.c, method transport_ssl_cb, line 188)
-	// - [ERROR][com.freerdp.core.transport] - BIO_read returned an error: error:14094438:SSL routines:ssl3_read_bytes:tlsv1 alert internal error (libfreerdp\core\transport.c, method transport_read_layer, line 574)
-
-	// of course, the password isn't expired; then the problem seems to be related to openssl, but it's hard to figure out...
-	// as a workaround, waiting this fixed (TODO: report issue to the FreeRDP team), let's use the target IP instead of FQDN
-
-	// EDIT 2018-03-21: reported since and should had been fixed in recent commits (2018-03-14) but the issue still occurs :/
-	// still resolving the target IP...
-
-	if (!resolve_hostname_ip(settings))
-	{
-		WLog_WARN(TAG, "rdp_client_connect: unable to resolve the target IP (%s), please check your DNS configuration", settings->ServerHostname);
-	}
-
-	#pragma endregion
 
 	/* make sure SSL is initialize for earlier enough for crypto, by taking advantage of winpr SSL FIPS flag for openssl initialization */
 	DWORD flags = WINPR_SSL_INIT_DEFAULT;
@@ -370,9 +279,11 @@ BOOL rdp_client_connect(rdpRdp* rdp)
 	if (!nego_connect(rdp->nego))
 	{
 		if (!freerdp_get_last_error(rdp->context))
+		{
 			freerdp_set_last_error(rdp->context, FREERDP_ERROR_SECURITY_NEGO_CONNECT_FAILED);
 
-		WLog_ERR(TAG, "Error: protocol security negotiation or connection failure");
+			WLog_ERR(TAG, "Error: protocol security negotiation or connection failure");
+		}
 		return FALSE;
 	}
 

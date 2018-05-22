@@ -678,6 +678,19 @@ void wf_myrtille_send_clipboard(wfContext* wfc, BYTE* data, UINT32 length)
 	sendMessage(wfc, myrtille->clipboardText);
 }
 
+void wf_myrtille_send_printjob(wfContext* wfc, char* printJobName)
+{
+	if (wfc->context.settings->MyrtilleSessionId == 0)
+		return;
+
+	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
+
+	std::stringstream ss;
+	ss << "printjob|" << printJobName << ".pdf";
+
+	sendMessage(wfc, ss.str());
+}
+
 int getEncoderClsid(const WCHAR* format, CLSID* pClsid)
 {
 	UINT  num = 0;          // number of image encoders

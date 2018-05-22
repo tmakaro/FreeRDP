@@ -37,6 +37,7 @@ void wf_myrtille_send_region(wfContext* wfc, RECT region);
 void wf_myrtille_send_cursor(wfContext* wfc);
 void wf_myrtille_reset_clipboard(wfContext* wfc);
 void wf_myrtille_send_clipboard(wfContext* wfc, BYTE* data, UINT32 length);
+void wf_myrtille_send_printjob(wfContext* wfc, char* printJobName);
 
 #ifdef __cplusplus
 }

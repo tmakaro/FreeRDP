@@ -4,6 +4,7 @@
  *
  * Copyright 2011 Marc-Andre Moreau <marcandre.moreau@gmail.com>
  * Copyright 2017 David Fort <contact@hardening-consulting.com>
+ * Copyright 2018 Kai Harms <kharms@rangee.com>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -76,7 +77,7 @@ int xf_list_monitors(xfContext* xfc)
 
 		for (i = 0; i < nmonitors; i++)
 		{
-			printf("      %s [%d] %hdx%hd\t+%hd+%hd\n",
+			printf("      %s [%d] %dx%d\t+%d+%d\n",
 			       monitors[i].primary ? "*" : " ", i,
 			       monitors[i].width, monitors[i].height,
 			       monitors[i].x, monitors[i].y);
@@ -280,6 +281,11 @@ BOOL xf_detect_monitors(xfContext* xfc, UINT32* pMaxWidth, UINT32* pMaxHeight)
 			if (settings->PercentScreenUseHeight)
 				*pMaxHeight = (xfc->workArea.height * settings->PercentScreen) / 100;
 		}
+	}
+	else if (settings->DesktopWidth && settings->DesktopHeight)
+	{
+		*pMaxWidth = settings->DesktopWidth;
+		*pMaxHeight = settings->DesktopHeight;
 	}
 
 	if (!settings->Fullscreen && !settings->Workarea && !settings->UseMultimon)

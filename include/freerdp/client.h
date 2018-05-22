@@ -40,6 +40,12 @@ typedef void (*pRdpClientFree)(freerdp* instance, rdpContext* context);
 typedef int (*pRdpClientStart)(rdpContext* context);
 typedef int (*pRdpClientStop)(rdpContext* context);
 
+#pragma region Myrtille
+
+typedef void (*pRdpClientPrint)(rdpContext* context, char* printJobName);
+
+#pragma endregion
+
 struct rdp_client_entry_points_v1
 {
 	DWORD Size;
@@ -56,6 +62,12 @@ struct rdp_client_entry_points_v1
 
 	pRdpClientStart ClientStart;
 	pRdpClientStop ClientStop;
+
+	#pragma region Myrtille
+
+	pRdpClientPrint ClientPrint;
+
+	#pragma endregion
 };
 
 #define RDP_CLIENT_INTERFACE_VERSION	1
