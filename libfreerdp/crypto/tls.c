@@ -78,12 +78,6 @@ struct _BIO_RDP_TLS
 };
 typedef struct _BIO_RDP_TLS BIO_RDP_TLS;
 
-static long bio_rdp_tls_callback(BIO* bio, int mode, const char* argp, int argi,
-                                 long argl, long ret)
-{
-	return 1;
-}
-
 static int bio_rdp_tls_write(BIO* bio, const char* buf, int size)
 {
 	int error;
@@ -693,7 +687,7 @@ static int tls_do_handshake(rdpTls* tls, BOOL clientMode)
 		int status;
 		struct pollfd pollfds;
 #elif !defined(_WIN32)
-		int fd;
+		SOCKET fd;
 		int status;
 		fd_set rset;
 		struct timeval tv;
@@ -737,7 +731,7 @@ static int tls_do_handshake(rdpTls* tls, BOOL clientMode)
 
 		do
 		{
-			status = poll(&pollfds, 1, 10 * 1000);
+			status = poll(&pollfds, 1, 10);
 		}
 		while ((status < 0) && (errno == EINTR));
 
@@ -853,13 +847,13 @@ int tls_connect(rdpTls* tls, BIO* underlying)
 	if (!tls_prepare(tls, underlying, SSLv23_client_method(), options, TRUE))
 		return FALSE;
 
-#ifndef OPENSSL_NO_TLSEXT
+#if !defined(OPENSSL_NO_TLSEXT) && !defined(LIBRESSL_VERSION_NUMBER)
 	SSL_set_tlsext_host_name(tls->ssl, tls->hostname);
 #endif
 	return tls_do_handshake(tls, TRUE);
 }
 
-#if defined(MICROSOFT_IOS_SNI_BUG) && !defined(OPENSSL_NO_TLSEXT)
+#if defined(MICROSOFT_IOS_SNI_BUG) && !defined(OPENSSL_NO_TLSEXT) && !defined(LIBRESSL_VERSION_NUMBER)
 static void tls_openssl_tlsext_debug_callback(SSL* s, int client_server,
         int type, unsigned char* data, int len, void* arg)
 {
@@ -1002,7 +996,7 @@ BOOL tls_accept(rdpTls* tls, BIO* underlying, rdpSettings* settings)
 		return FALSE;
 	}
 
-#if defined(MICROSOFT_IOS_SNI_BUG) && !defined(OPENSSL_NO_TLSEXT)
+#if defined(MICROSOFT_IOS_SNI_BUG) && !defined(OPENSSL_NO_TLSEXT) && !defined(LIBRESSL_VERSION_NUMBER)
 	SSL_set_tlsext_debug_callback(tls->ssl, tls_openssl_tlsext_debug_callback);
 #endif
 	return tls_do_handshake(tls, FALSE) > 0;
@@ -1050,21 +1044,6 @@ BOOL tls_send_alert(rdpTls* tls)
 
 #endif
 	return TRUE;
-}
-
-static BIO* findBufferedBio(BIO* front)
-{
-	BIO* ret = front;
-
-	while (ret)
-	{
-		if (BIO_method_type(ret) == BIO_TYPE_BUFFERED)
-			return ret;
-
-		ret = BIO_next(ret);
-	}
-
-	return ret;
 }
 
 int tls_write_all(rdpTls* tls, const BYTE* data, int length)
@@ -1245,8 +1224,11 @@ int tls_verify_certificate(rdpTls* tls, CryptoCert cert, char* hostname,
 	if (tls->settings->IgnoreCertificate)
 		return 1;  /* success! */
 
+	if (!tls->isGatewayTransport && tls->settings->AuthenticationLevel == 0)
+		return 1;  /* success! */
+
 	/* if user explicitly specified a certificate name, use it instead of the hostname */
-	if (tls->settings->CertificateName)
+	if (!tls->isGatewayTransport && tls->settings->CertificateName)
 		hostname = tls->settings->CertificateName;
 
 	/* attempt verification using OpenSSL and the ~/.freerdp/certs certificate store */

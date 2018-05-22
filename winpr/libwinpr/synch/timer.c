@@ -234,23 +234,13 @@ static int InitializeWaitableTimer(WINPR_TIMER* timer)
 	if (!timer->lpArgToCompletionRoutine)
 	{
 #ifdef HAVE_SYS_TIMERFD_H
-		int status;
-		timer->fd = timerfd_create(CLOCK_MONOTONIC, 0);
+		timer->fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
 
 		if (timer->fd <= 0)
 		{
 			free(timer);
 			return -1;
 		}
-
-		status = fcntl(timer->fd, F_SETFL, O_NONBLOCK);
-
-		if (status)
-		{
-			close(timer->fd);
-			return -1;
-		}
-
 #elif defined(__APPLE__)
 #else
 		WLog_ERR(TAG, "%s: os specific implementation is missing", __FUNCTION__);
@@ -339,9 +329,11 @@ HANDLE CreateWaitableTimerA(LPSECURITY_ATTRIBUTES lpTimerAttributes, BOOL bManua
 	}
 
 	return handle;
+#if defined(__APPLE__)
 fail:
 	TimerCloseHandle(handle);
 	return NULL;
+#endif
 }
 
 HANDLE CreateWaitableTimerW(LPSECURITY_ATTRIBUTES lpTimerAttributes, BOOL bManualReset,

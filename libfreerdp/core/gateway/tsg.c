@@ -1920,7 +1920,7 @@ static int transport_bio_tsg_gets(BIO* bio, char* str, int size)
 
 static long transport_bio_tsg_ctrl(BIO* bio, int cmd, long arg1, void* arg2)
 {
-	int status = 0;
+	int status = -1;
 	rdpTsg* tsg = (rdpTsg*) BIO_get_data(bio);
 	RpcVirtualConnection* connection = tsg->rpc->VirtualConnection;
 	RpcInChannel* inChannel = connection->DefaultInChannel;
@@ -1936,7 +1936,7 @@ static long transport_bio_tsg_ctrl(BIO* bio, int cmd, long arg1, void* arg2)
 	{
 		if (arg2)
 		{
-			*((ULONG_PTR*) arg2) = (ULONG_PTR) tsg->rpc->client->PipeEvent;
+			*((HANDLE*) arg2) = tsg->rpc->client->PipeEvent;
 			status = 1;
 		}
 	}

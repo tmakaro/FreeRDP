@@ -72,6 +72,7 @@ include(GNUInstallDirsWrapper)
 include(CMakePackageConfigHelpers)
 include(InstallFreeRDPMan)
 include(GetGitRevisionDescription)
+include(SetFreeRDPCMakeInstallDir)
 
 # Soname versioning
 set(BUILD_NUMBER 0)
@@ -202,6 +203,16 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "BSD")
 	endif()
 endif()
 
+if(${CMAKE_SYSTEM_NAME} MATCHES "DragonFly")
+	set(BSD TRUE)
+	set(FREEBSD TRUE)
+endif()
+
+if(FREEBSD)
+	find_path(EPOLLSHIM_INCLUDE_DIR NAMES sys/epoll.h sys/timerfd.h HINTS /usr/local/include/libepoll-shim)
+	find_library(EPOLLSHIM_LIBS NAMES epoll-shim libepoll-shim HINTS /usr/local/lib)
+endif()
+
 # Configure MSVC Runtime
 if(MSVC)
 	include(MSVCRuntime)
@@ -223,8 +234,8 @@ if(MSVC)
 	endif()
 endif()
 
-# Enable 64bit file support on linux.
-if("${CMAKE_SYSTEM_NAME}" MATCHES "Linux")
+# Enable 64bit file support on linux and FreeBSD.
+if("${CMAKE_SYSTEM_NAME}" MATCHES "Linux" OR FREEBSD)
 	add_definitions("-D_FILE_OFFSET_BITS=64")
 endif()
 
@@ -493,7 +504,7 @@ if(WIN32)
 	# </Myrtille>
 	
 	set(CMAKE_USE_RELATIVE_PATH ON)
-	if (${CMAKE_GENERATOR} MATCHES "NMake Makefile*")
+    if (${CMAKE_GENERATOR} MATCHES "NMake Makefile*" OR ${CMAKE_GENERATOR} MATCHES "Ninja*")
 		set(CMAKE_PDB_BINARY_DIR ${CMAKE_BINARY_DIR})
 	elseif (${CMAKE_GENERATOR} MATCHES "Visual Studio*")
 		set(CMAKE_PDB_BINARY_DIR "${CMAKE_BINARY_DIR}/\${CMAKE_INSTALL_CONFIG_NAME}")
@@ -670,7 +681,13 @@ if(UNIX OR CYGWIN)
 	if (HAVE_SYS_EVENTFD_H)
 		check_symbol_exists(eventfd_read sys/eventfd.h WITH_EVENTFD_READ_WRITE)
 	endif()
+	if (FREEBSD)
+		list(APPEND CMAKE_REQUIRED_INCLUDES ${EPOLLSHIM_INCLUDE_DIR})
+	endif()
 	check_include_files(sys/timerfd.h HAVE_SYS_TIMERFD_H)
+	if (FREEBSD)
+		list(REMOVE_ITEM CMAKE_REQUIRED_INCLUDES ${EPOLLSHIM_INCLUDE_DIR})
+	endif()
 	check_include_files(poll.h HAVE_POLL_H)
 	list(APPEND CMAKE_REQUIRED_LIBRARIES m)
 	check_symbol_exists(ceill math.h HAVE_MATH_C99_LONG_DOUBLE)
@@ -767,6 +784,18 @@ set(OPENH264_FEATURE_DESCRIPTION "use OpenH264 library")
 set(GSM_FEATURE_TYPE "OPTIONAL")
 set(GSM_FEATURE_PURPOSE "codec")
 set(GSM_FEATURE_DESCRIPTION "GSM audio codec library")
+
+set(LAME_FEATURE_TYPE "OPTIONAL")
+set(LAME_FEATURE_PURPOSE "codec")
+set(LAME_FEATURE_DESCRIPTION "lame MP3 audio codec library")
+
+set(FAAD2_FEATURE_TYPE "OPTIONAL")
+set(FAAD2_FEATURE_PURPOSE "codec")
+set(FAAD2_FEATURE_DESCRIPTION "FAAD2 AAC audio codec library")
+
+set(FAAC_FEATURE_TYPE "OPTIONAL")
+set(FAAC_FEATURE_PURPOSE "codec")
+set(FAAC_FEATURE_DESCRIPTION "FAAC AAC audio codec library")
 
 set(GSSAPI_FEATURE_TYPE "OPTIONAL")
 set(GSSAPI_FEATURE_PURPOSE "auth")
@@ -868,6 +897,9 @@ find_feature(JPEG ${JPEG_FEATURE_TYPE} ${JPEG_FEATURE_PURPOSE} ${JPEG_FEATURE_DE
 find_feature(x264 ${X264_FEATURE_TYPE} ${X264_FEATURE_PURPOSE} ${X264_FEATURE_DESCRIPTION})
 find_feature(OpenH264 ${OPENH264_FEATURE_TYPE} ${OPENH264_FEATURE_PURPOSE} ${OPENH264_FEATURE_DESCRIPTION})
 find_feature(GSM ${GSM_FEATURE_TYPE} ${GSM_FEATURE_PURPOSE} ${GSM_FEATURE_DESCRIPTION})
+find_feature(LAME ${LAME_FEATURE_TYPE} ${LAME_FEATURE_PURPOSE} ${LAME_FEATURE_DESCRIPTION})
+find_feature(FAAD2 ${FAAD2_FEATURE_TYPE} ${FAAD2_FEATURE_PURPOSE} ${FAAD2_FEATURE_DESCRIPTION})
+find_feature(FAAC ${FAAC_FEATURE_TYPE} ${FAAC_FEATURE_PURPOSE} ${FAAC_FEATURE_DESCRIPTION})
 
 find_feature(GSSAPI ${GSSAPI_FEATURE_TYPE} ${GSSAPI_FEATURE_PURPOSE} ${GSSAPI_FEATURE_DESCRIPTION})
 
@@ -955,7 +987,9 @@ if (APPLE)
 	set(CMAKE_INSTALL_RPATH "@loader_path/../Frameworks")
 else (APPLE)
 	set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-	set(CMAKE_INSTALL_RPATH "\$ORIGIN/../${CMAKE_INSTALL_LIBDIR}:\$ORIGIN/..")
+	if (NOT FREEBSD)
+		set(CMAKE_INSTALL_RPATH "\$ORIGIN/../${CMAKE_INSTALL_LIBDIR}:\$ORIGIN/..")
+	endif()
 endif(APPLE)
 
 if (BUILD_SHARED_LIBS)
