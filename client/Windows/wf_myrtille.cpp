@@ -1002,7 +1002,7 @@ DWORD WINAPI processInputsPipe(LPVOID lpParameter)
 							break;
 
 						// user name
-						case COMMAND::SEND_USER_NAME:							
+						case COMMAND::SEND_USER_NAME:
 							char* user;
 							user = _strdup(commandArgs.c_str());
 							if (user)

@@ -110,7 +110,7 @@ static void freerdp_client_print_command_line_args(COMMAND_LINE_ARGUMENT_A* arg)
 		{
 			printf("    %s", arg->Default ? "-" : "+");
 			printf("%-20s", arg->Name);
-			printf("\t%s (default:%s)\n", arg->Text, arg->Default ? "on" : "off");
+			printf("\t%s %s\n", arg->Default ? "Disable" : "Enable", arg->Text);
 		}
 	}
 	while ((arg = CommandLineFindNextArgumentA(arg)) != NULL);
@@ -589,11 +589,16 @@ static char** freerdp_command_line_parse_comma_separated_values_ex(const char* n
 	{
 		if (name)
 		{
-			p = (char**) calloc(1UL, sizeof(char*));
+			size_t len = strlen(name);
+			p = (char**) calloc(1UL + len, sizeof(char*));
 
 			if (p)
 			{
-				p[0] = name;
+				char* dst = (char*)&p[1];
+				p[0] = dst;
+
+				strncpy(dst, name, len);
+
 				*count = 1;
 				return p;
 			}
@@ -1041,7 +1046,7 @@ int freerdp_map_keyboard_layout_name_to_id(char* name)
 }
 
 static int freerdp_detect_command_line_pre_filter(void* context, int index,
-        int argc, LPCSTR* argv)
+        int argc, LPSTR* argv)
 {
 	int length;
 
@@ -1087,7 +1092,7 @@ static int freerdp_detect_windows_style_command_line_syntax(int argc, char** arg
 	*count = 0;
 	detect_status = 0;
 	CommandLineClearArgumentsA(args);
-	status = CommandLineParseArgumentsA(argc, (const char**) argv, args, flags,
+	status = CommandLineParseArgumentsA(argc, argv, args, flags,
 	                                    NULL, freerdp_detect_command_line_pre_filter, NULL);
 
 	if (status < 0)
@@ -1129,7 +1134,7 @@ int freerdp_detect_posix_style_command_line_syntax(int argc, char** argv,
 	*count = 0;
 	detect_status = 0;
 	CommandLineClearArgumentsA(args);
-	status = CommandLineParseArgumentsA(argc, (const char**) argv, args, flags,
+	status = CommandLineParseArgumentsA(argc, argv, args, flags,
 	                                    NULL, freerdp_detect_command_line_pre_filter, NULL);
 
 	if (status < 0)
@@ -1319,7 +1324,7 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 		                allowUnknown);
 	else
 		compatibility = freerdp_client_detect_command_line(argc - 1, &argv[1], &flags,
-						allowUnknown);
+		                allowUnknown);
 
 	settings->ProxyHostname = NULL;
 	settings->ProxyUsername = NULL;
@@ -1349,7 +1354,7 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 		}
 
 		CommandLineClearArgumentsA(args);
-		status = CommandLineParseArgumentsA(argc, (const char**) argv, args, flags,
+		status = CommandLineParseArgumentsA(argc, argv, args, flags,
 		                                    settings,
 		                                    freerdp_client_command_line_pre_filter,
 		                                    freerdp_client_command_line_post_filter);
@@ -1832,8 +1837,7 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 
 			if (arg->Flags & COMMAND_LINE_VALUE_PRESENT)
 			{
-				char *atPtr;
-
+				char* atPtr;
 				/* value is [scheme://][user:password@]hostname:port */
 				p = strstr(arg->Value, "://");
 
@@ -1860,6 +1864,7 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 
 				/* arg->Value is now [user:password@]hostname:port */
 				atPtr = strrchr(arg->Value, '@');
+
 				if (atPtr)
 				{
 					/* got a login / password,
@@ -1869,7 +1874,8 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 					 *      ^
 					 *      colonPtr
 					 */
-					char *colonPtr = strchr(arg->Value, ':');
+					char* colonPtr = strchr(arg->Value, ':');
+
 					if (!colonPtr || (colonPtr > atPtr))
 					{
 						WLog_ERR(TAG, "invalid syntax for proxy, expected syntax is user:password@host:port");
@@ -1878,6 +1884,7 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 
 					*colonPtr = '\0';
 					settings->ProxyUsername = _strdup(arg->Value);
+
 					if (!settings->ProxyUsername)
 					{
 						WLog_ERR(TAG, "unable to allocate proxy username");
@@ -1886,6 +1893,7 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 
 					*atPtr = '\0';
 					settings->ProxyPassword = _strdup(colonPtr + 1);
+
 					if (!settings->ProxyPassword)
 					{
 						WLog_ERR(TAG, "unable to allocate proxy password");
@@ -1983,6 +1991,7 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 			else
 			{
 				type = strtol(arg->Value, &pEnd, 10);
+
 				if (errno != 0)
 					return COMMAND_LINE_ERROR_UNEXPECTED_VALUE;
 			}
@@ -2129,8 +2138,8 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 			else if (_stricmp(arg->Value, "lan") == 0)
 				type = CONNECTION_TYPE_LAN;
 			else if ((_stricmp(arg->Value, "autodetect") == 0) ||
-					 (_stricmp(arg->Value, "auto") == 0) ||
-					 (_stricmp(arg->Value, "detect") == 0))
+			         (_stricmp(arg->Value, "auto") == 0) ||
+			         (_stricmp(arg->Value, "detect") == 0))
 			{
 				type = CONNECTION_TYPE_AUTODETECT;
 			}

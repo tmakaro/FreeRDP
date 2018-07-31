@@ -47,6 +47,7 @@
 #include <freerdp/addin.h>
 #include <freerdp/codec/dsp.h>
 
+#include "rdpsnd_common.h"
 #include "rdpsnd_main.h"
 
 struct rdpsnd_plugin
@@ -219,7 +220,7 @@ static UINT rdpsnd_send_client_audio_formats(rdpsndPlugin* rdpsnd)
 	Stream_Write_UINT16(pdu, 0); /* wDGramPort */
 	Stream_Write_UINT16(pdu, wNumberOfFormats); /* wNumberOfFormats */
 	Stream_Write_UINT8(pdu, 0); /* cLastBlockConfirmed */
-	Stream_Write_UINT16(pdu, 0x8); /* wVersion */
+	Stream_Write_UINT16(pdu, CHANNEL_VERSION_WIN_MAX); /* wVersion */
 	Stream_Write_UINT8(pdu, 0); /* bPad */
 
 	for (index = 0; index < wNumberOfFormats; index++)
@@ -318,7 +319,7 @@ static UINT rdpsnd_recv_server_audio_formats_pdu(rdpsndPlugin* rdpsnd,
 
 	if (ret == CHANNEL_RC_OK)
 	{
-		if (wVersion >= 6)
+		if (wVersion >= CHANNEL_VERSION_WIN_7)
 			ret = rdpsnd_send_quality_mode_pdu(rdpsnd);
 	}
 
@@ -766,7 +767,7 @@ static UINT rdpsnd_process_addin_args(rdpsndPlugin* rdpsnd, ADDIN_ARGV* args)
 	if (args->argc > 1)
 	{
 		flags = COMMAND_LINE_SIGIL_NONE | COMMAND_LINE_SEPARATOR_COLON;
-		status = CommandLineParseArgumentsA(args->argc, (const char**) args->argv,
+		status = CommandLineParseArgumentsA(args->argc, args->argv,
 		                                    rdpsnd_args, flags, rdpsnd, NULL, NULL);
 
 		if (status < 0)
@@ -1045,7 +1046,6 @@ static VOID VCAPITYPE rdpsnd_virtual_channel_open_event_ex(LPVOID lpUserParam, D
 			break;
 
 		case CHANNEL_EVENT_WRITE_COMPLETE:
-			Stream_Free((wStream*) pData, TRUE);
 			break;
 
 		case CHANNEL_EVENT_USER:
