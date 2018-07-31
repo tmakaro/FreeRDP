@@ -76,7 +76,7 @@ enum class COMMAND
 	SEND_USER_NAME = 2,
 	SEND_USER_PASSWORD = 3,
 	SEND_START_PROGRAM = 4,
-	CONNECT_RDP_CLIENT = 5,
+	CONNECT_CLIENT = 5,
 
 	// browser
 	SEND_BROWSER_RESIZE = 6,
@@ -103,7 +103,7 @@ enum class COMMAND
 	SET_IMAGE_QUANTITY = 21,
 	REQUEST_FULLSCREEN_UPDATE = 22,
 	REQUEST_REMOTE_CLIPBOARD = 23,
-	CLOSE_RDP_CLIENT = 24
+	CLOSE_CLIENT = 24
 };
 
 // command mapping
@@ -214,7 +214,7 @@ void wf_myrtille_start(wfContext* wfc)
 	commandMap["USR"] = COMMAND::SEND_USER_NAME;
 	commandMap["PWD"] = COMMAND::SEND_USER_PASSWORD;
 	commandMap["PRG"] = COMMAND::SEND_START_PROGRAM;
-	commandMap["CON"] = COMMAND::CONNECT_RDP_CLIENT;
+	commandMap["CON"] = COMMAND::CONNECT_CLIENT;
 	commandMap["RSZ"] = COMMAND::SEND_BROWSER_RESIZE;
 	commandMap["KUC"] = COMMAND::SEND_KEY_UNICODE;
 	commandMap["KSC"] = COMMAND::SEND_KEY_SCANCODE;
@@ -233,7 +233,7 @@ void wf_myrtille_start(wfContext* wfc)
 	commandMap["QNT"] = COMMAND::SET_IMAGE_QUANTITY;
 	commandMap["FSU"] = COMMAND::REQUEST_FULLSCREEN_UPDATE;
 	commandMap["CLP"] = COMMAND::REQUEST_REMOTE_CLIPBOARD;
-	commandMap["CLO"] = COMMAND::CLOSE_RDP_CLIENT;
+	commandMap["CLO"] = COMMAND::CLOSE_CLIENT;
 
 	// inputs
 	myrtille->processInputs = true;
@@ -1032,7 +1032,7 @@ DWORD WINAPI processInputsPipe(LPVOID lpParameter)
 							break;
 
 						// connect rdp
-						case COMMAND::CONNECT_RDP_CLIENT:
+						case COMMAND::CONNECT_CLIENT:
 							DWORD threadId;
 							if (CreateThread(NULL, 0, wf_client_thread, (void*)wfc->context.instance, 0, &threadId) == NULL)
 							{
@@ -1168,7 +1168,7 @@ DWORD WINAPI processInputsPipe(LPVOID lpParameter)
 
 						// the standard way to close an rdp session is to logoff the user; an alternate way is to simply close the rdp client
 						// this disconnect the session, which is then subsequently closed (1 sec later if "MaxDisconnectionTime" = 1000 ms)
-						case COMMAND::CLOSE_RDP_CLIENT:
+						case COMMAND::CLOSE_CLIENT:
 							myrtille->processInputs = false;
 							break;
 					}
