@@ -72,38 +72,39 @@ enum class COMMAND
 {
 	// connection
 	SEND_SERVER_ADDRESS = 0,
-	SEND_USER_DOMAIN = 1,
-	SEND_USER_NAME = 2,
-	SEND_USER_PASSWORD = 3,
-	SEND_START_PROGRAM = 4,
-	CONNECT_CLIENT = 5,
+	SEND_VM_GUID = 1,
+	SEND_USER_DOMAIN = 2,
+	SEND_USER_NAME = 3,
+	SEND_USER_PASSWORD = 4,
+	SEND_START_PROGRAM = 5,
+	CONNECT_CLIENT = 6,
 
 	// browser
-	SEND_BROWSER_RESIZE = 6,
+	SEND_BROWSER_RESIZE = 7,
 
 	// keyboard
-	SEND_KEY_UNICODE = 7,
-	SEND_KEY_SCANCODE = 8,
+	SEND_KEY_UNICODE = 8,
+	SEND_KEY_SCANCODE = 9,
 
 	// mouse
-	SEND_MOUSE_MOVE = 9,
-	SEND_MOUSE_LEFT_BUTTON = 10,
-	SEND_MOUSE_MIDDLE_BUTTON = 11,
-	SEND_MOUSE_RIGHT_BUTTON = 12,
-	SEND_MOUSE_WHEEL_UP = 13,
-	SEND_MOUSE_WHEEL_DOWN = 14,
+	SEND_MOUSE_MOVE = 10,
+	SEND_MOUSE_LEFT_BUTTON = 11,
+	SEND_MOUSE_MIDDLE_BUTTON = 12,
+	SEND_MOUSE_RIGHT_BUTTON = 13,
+	SEND_MOUSE_WHEEL_UP = 14,
+	SEND_MOUSE_WHEEL_DOWN = 15,
 
 	// control
-	SET_STAT_MODE = 15,
-	SET_DEBUG_MODE = 16,
-	SET_COMPATIBILITY_MODE = 17,
-	SET_SCALE_DISPLAY = 18,
-	SET_IMAGE_ENCODING = 19,
-	SET_IMAGE_QUALITY = 20,
-	SET_IMAGE_QUANTITY = 21,
-	REQUEST_FULLSCREEN_UPDATE = 22,
-	REQUEST_REMOTE_CLIPBOARD = 23,
-	CLOSE_CLIENT = 24
+	SET_STAT_MODE = 16,
+	SET_DEBUG_MODE = 17,
+	SET_COMPATIBILITY_MODE = 18,
+	SET_SCALE_DISPLAY = 19,
+	SET_IMAGE_ENCODING = 20,
+	SET_IMAGE_QUALITY = 21,
+	SET_IMAGE_QUANTITY = 22,
+	REQUEST_FULLSCREEN_UPDATE = 23,
+	REQUEST_REMOTE_CLIPBOARD = 24,
+	CLOSE_CLIENT = 25
 };
 
 // command mapping
@@ -210,6 +211,7 @@ void wf_myrtille_start(wfContext* wfc)
 	they must match the prefixes used client side
 	*/
 	commandMap["SRV"] = COMMAND::SEND_SERVER_ADDRESS;
+	commandMap["VMG"] = COMMAND::SEND_VM_GUID;
 	commandMap["DOM"] = COMMAND::SEND_USER_DOMAIN;
 	commandMap["USR"] = COMMAND::SEND_USER_NAME;
 	commandMap["PWD"] = COMMAND::SEND_USER_PASSWORD;
@@ -549,6 +551,8 @@ void wf_myrtille_send_cursor(wfContext* wfc)
 	UINT* bmpBits = (UINT*)bmpData->Scan0;
 	int stride = bmpData->Stride;
 
+	bool bmpOk = false;
+
 	// make the cursor transparent
 	for (int x = 0; x < bmpTransparentCursor->GetWidth(); x++)
 	{
@@ -566,62 +570,70 @@ void wf_myrtille_send_cursor(wfContext* wfc)
 			{
 				bmpBits[y * stride / 4 + x] = 0x00ffffff;
 			}
-
 			// for some reason, some cursors (like the text one) are yellow instead of black ?! switching color...
 			else if (r == 255 && g == 255 && b == 0)
 			{
 				bmpBits[y * stride / 4 + x] = 0xff000000;
+			}
+			// cursor is ok (contains black bit(s))
+			else
+			{
+				bmpOk = true;
 			}
 		}
 	}
 
 	// unlock the cursor
 	bmpTransparentCursor->UnlockBits(bmpData);
-	
-	// convert into PNG
-	IStream* pngStream;
-	CreateStreamOnHGlobal(NULL, TRUE, &pngStream);
-	bmpTransparentCursor->Save(pngStream, &myrtille->pngClsid);
 
-	STATSTG statstg;
-	pngStream->Stat(&statstg, STATFLAG_DEFAULT);
-	ULONG pngSize = (ULONG)statstg.cbSize.LowPart;
-
-	// retrieve cursor info
-	ICONINFO cursorInfo;
-	GetIconInfo((HICON)wfc->cursor, &cursorInfo);
-
-	if (myrtille->imageIdx == INT_MAX)
+	// send the cursor only if ok
+	if (bmpOk)
 	{
-		myrtille->imageIdx = 0;
-	}
+		// convert into PNG
+		IStream* pngStream;
+		CreateStreamOnHGlobal(NULL, TRUE, &pngStream);
+		bmpTransparentCursor->Save(pngStream, &myrtille->pngClsid);
 
-	// send
-	if (pngStream != NULL && pngSize > 0)
-	{
-		sendImage(
-			wfc,
-			bmpTransparentCursor,
-			++myrtille->imageIdx,
-			cursorInfo.xHotspot,
-			cursorInfo.yHotspot,
-			bmpTransparentCursor->GetWidth(),
-			bmpTransparentCursor->GetHeight(),
-			(int)IMAGE_FORMAT::CUR,
-			(int)IMAGE_QUALITY::HIGHEST,
-			pngStream,
-			pngSize,
-			false);
-	}
+		STATSTG statstg;
+		pngStream->Stat(&statstg, STATFLAG_DEFAULT);
+		ULONG pngSize = (ULONG)statstg.cbSize.LowPart;
 
-	// cleanup
-	DeleteObject(cursorInfo.hbmMask);
-	DeleteObject(cursorInfo.hbmColor);
+		// retrieve cursor info
+		ICONINFO cursorInfo;
+		GetIconInfo((HICON)wfc->cursor, &cursorInfo);
 
-	if (pngStream != NULL)
-	{
-		pngStream->Release();
-		pngStream = NULL;
+		if (myrtille->imageIdx == INT_MAX)
+		{
+			myrtille->imageIdx = 0;
+		}
+
+		// send
+		if (pngStream != NULL && pngSize > 0)
+		{
+			sendImage(
+				wfc,
+				bmpTransparentCursor,
+				++myrtille->imageIdx,
+				cursorInfo.xHotspot,
+				cursorInfo.yHotspot,
+				bmpTransparentCursor->GetWidth(),
+				bmpTransparentCursor->GetHeight(),
+				(int)IMAGE_FORMAT::CUR,
+				(int)IMAGE_QUALITY::HIGHEST,
+				pngStream,
+				pngSize,
+				false);
+		}
+
+		// cleanup
+		DeleteObject(cursorInfo.hbmMask);
+		DeleteObject(cursorInfo.hbmColor);
+
+		if (pngStream != NULL)
+		{
+			pngStream->Release();
+			pngStream = NULL;
+		}
 	}
 
 	delete rect;
@@ -995,6 +1007,16 @@ DWORD WINAPI processInputsPipe(LPVOID lpParameter)
 							}
 							break;
 
+						// hyper-v vm guid
+						case COMMAND::SEND_VM_GUID:
+							wfc->context.settings->VmConnectMode = TRUE;
+							wfc->context.settings->ServerPort = 2179;
+							wfc->context.settings->NegotiateSecurityLayer = FALSE;
+							wfc->context.settings->SendPreconnectionPdu = TRUE;
+							free(wfc->context.settings->PreconnectionBlob);
+							wfc->context.settings->PreconnectionBlob = _strdup(commandArgs.c_str());
+							break;
+
 						// user domain
 						case COMMAND::SEND_USER_DOMAIN:
 							free(wfc->context.settings->Domain);
@@ -1067,8 +1089,36 @@ DWORD WINAPI processInputsPipe(LPVOID lpParameter)
 								// non character key
 								else
 								{
-									if (wfc->context.input->KeyboardEvent)
-										wfc->context.input->KeyboardEvent(wfc->context.input, (pressed == "1" ? KBD_FLAGS_DOWN : KBD_FLAGS_RELEASE), atoi(keyCode.c_str()));
+									// some scancodes needs to be extended
+									// it's necessary with a VM GUID connection (numbers are displayed instead of arrows action otherwise, whatever the numlock status)
+									// with a standard rdp connection, this issue happens sometimes and it could fix it too
+
+									DWORD scancode = atoi(keyCode.c_str());
+
+									switch (scancode)
+									{
+										// scancodes to extend (add others, as needed)
+										case 73:	// page up
+										case 81:	// page down
+										case 79:	// end
+										case 71:	// home
+										case 75:	// left arrow
+										case 72:	// up arrow
+										case 77:	// right arrow
+										case 80:	// down arrow
+											if (pressed == "1")
+											{
+												DWORD rdp_scancode = MAKE_RDP_SCANCODE((BYTE)scancode, 1 & LLKHF_EXTENDED);
+												freerdp_input_send_keyboard_event_ex(wfc->context.input, !(1 & LLKHF_UP), rdp_scancode);
+											}
+											break;
+
+										// default scancodes
+										default:
+											if (wfc->context.input->KeyboardEvent)
+												wfc->context.input->KeyboardEvent(wfc->context.input, (pressed == "1" ? KBD_FLAGS_DOWN : KBD_FLAGS_RELEASE), scancode);
+											break;
+									}
 								}
 							}
 							break;
