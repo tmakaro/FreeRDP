@@ -81,7 +81,7 @@ if ($ENV{BUILD_NUMBER})
 endif()
 set(WITH_LIBRARY_VERSIONING "ON")
 
-set(RAW_VERSTION_STRING "2.0.0-dev3")
+set(RAW_VERSTION_STRING "2.0.0-dev4")
 if(EXISTS "${CMAKE_SOURCE_DIR}/.source_tag")
 	file(READ ${CMAKE_SOURCE_DIR}/.source_tag RAW_VERSTION_STRING)
 elseif(USE_VERSION_FROM_GIT_TAG)
@@ -902,6 +902,20 @@ if (WITH_FFMPEG AND NOT FFMPEG_FOUND)
 	message(FATAL_ERROR "FFMPEG support requested but not detected")
 endif()
 set(WITH_FFMPEG ${FFMPEG_FOUND})
+
+# Version check, if we have detected FFMPEG but the version is too old
+# deactivate it as sound backend.
+if (WITH_DSP_FFMPEG)
+	# Deactivate FFmpeg backend for sound, if the version is too old.
+	# See libfreerdp/codec/dsp_ffmpeg.h
+	check_symbol_exists(LIBAVCODEC_VERSION_MAJOR "libavcodec/version.h" AVCODEC_VERSION_MAJOR)
+	check_symbol_exists(LIBAVCODEC_VERSION_MINOR "libavcodec/version.h" AVCODEC_VERSION_MINOR)
+	check_symbol_exists(LIBAVCODEC_VERSION_MICRO "libavcodec/version.h" AVCODEC_VERSION_MICRO)
+	if (AVCODEC_VERSION_MAJOR LESS 57 OR AVCODEC_VERSION_MINOR LESS 48 OR AVCODEC_VERSION_MICRO LESS 101)
+		message("FFmpeg version detected ${}.${}.${} is too old. (Require at least 57.48.101 for sound). Deactivating")
+		set(WITH_DSP_FFMPEG OFF)
+	endif()
+endif (WITH_DSP_FFMPEG)
 
 if (WITH_OPENH264 AND NOT OPENH264_FOUND)
 	message(FATAL_ERROR "OpenH264 support requested but not detected")
