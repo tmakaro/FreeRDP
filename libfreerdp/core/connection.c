@@ -217,7 +217,7 @@ BOOL resolve_hostname_ip(rdpSettings* settings)
 		else if (addr->ai_family == AF_INET6)
 		{
 			// bypass link-local ipv6
-			if (addr->ai_next->ai_family == AF_INET6)
+			if (addr->ai_next != NULL && addr->ai_next->ai_family == AF_INET6)
 				continue;
 
 			sockaddr_ipv6 = (struct sockaddr_in6*)addr->ai_addr;
