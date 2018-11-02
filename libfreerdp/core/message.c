@@ -1491,7 +1491,6 @@ static BOOL update_message_PointerCached(rdpContext* context,
 /* Message Queue */
 static BOOL update_message_free_update_class(wMessage* msg, int type)
 {
-	int status = 0;
 	rdpContext* context;
 
 	if (!msg)
@@ -1579,7 +1578,7 @@ static BOOL update_message_process_update_class(rdpUpdateProxy* proxy, wMessage*
 	BOOL rc = FALSE;
 
 	if (!proxy || !msg)
-		return -1;
+		return FALSE;
 
 	switch (type)
 	{
@@ -2038,8 +2037,6 @@ static BOOL update_message_free_altsec_update_class(wMessage* msg, int type)
 static BOOL update_message_process_altsec_update_class(rdpUpdateProxy* proxy, wMessage* msg,
         int type)
 {
-	int status = 0;
-
 	if (!proxy || !msg)
 		return FALSE;
 

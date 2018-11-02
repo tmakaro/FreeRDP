@@ -86,9 +86,7 @@ struct rdpsnd_plugin
 
 	UINT32 latency;
 	BOOL isOpen;
-	UINT16 fixedFormat;
-	UINT16 fixedChannel;
-	UINT32 fixedRate;
+	AUDIO_FORMAT* fixed_format;
 
 	char* subsystem;
 	char* device_name;
@@ -139,16 +137,14 @@ static UINT rdpsnd_send_quality_mode_pdu(rdpsndPlugin* rdpsnd)
 static void rdpsnd_select_supported_audio_formats(rdpsndPlugin* rdpsnd)
 {
 	UINT16 index;
-	rdpsnd_free_audio_formats(rdpsnd->ClientFormats, rdpsnd->NumberOfClientFormats);
+	audio_formats_free(rdpsnd->ClientFormats, rdpsnd->NumberOfClientFormats);
 	rdpsnd->NumberOfClientFormats = 0;
 	rdpsnd->ClientFormats = NULL;
 
 	if (!rdpsnd->NumberOfServerFormats)
 		return;
 
-	rdpsnd->ClientFormats = (AUDIO_FORMAT*) calloc(
-	                            rdpsnd->NumberOfServerFormats,
-	                            sizeof(AUDIO_FORMAT));
+	rdpsnd->ClientFormats = audio_formats_new(rdpsnd->NumberOfServerFormats);
 
 	if (!rdpsnd->ClientFormats)
 		return;
@@ -157,29 +153,14 @@ static void rdpsnd_select_supported_audio_formats(rdpsndPlugin* rdpsnd)
 	{
 		const AUDIO_FORMAT* serverFormat = &rdpsnd->ServerFormats[index];
 
-		if ((rdpsnd->fixedFormat > 0) &&
-		    (rdpsnd->fixedFormat != serverFormat->wFormatTag))
-			continue;
-
-		if ((rdpsnd->fixedChannel > 0) &&
-		    (rdpsnd->fixedChannel != serverFormat->nChannels))
-			continue;
-
-		if ((rdpsnd->fixedRate > 0) &&
-		    (rdpsnd->fixedRate != serverFormat->nSamplesPerSec))
+		if (!audio_format_compatible(rdpsnd->fixed_format, serverFormat))
 			continue;
 
 		if (freerdp_dsp_supports_format(serverFormat, FALSE) ||
 		    rdpsnd->device->FormatSupported(rdpsnd->device, serverFormat))
 		{
 			AUDIO_FORMAT* clientFormat = &rdpsnd->ClientFormats[rdpsnd->NumberOfClientFormats++];
-			*clientFormat = *serverFormat;
-
-			if (serverFormat->cbSize > 0)
-			{
-				clientFormat->data = (BYTE*) malloc(serverFormat->cbSize);
-				CopyMemory(clientFormat->data, serverFormat->data, serverFormat->cbSize);
-			}
+			audio_format_copy(serverFormat, clientFormat);
 		}
 	}
 }
@@ -226,16 +207,12 @@ static UINT rdpsnd_send_client_audio_formats(rdpsndPlugin* rdpsnd)
 	for (index = 0; index < wNumberOfFormats; index++)
 	{
 		const AUDIO_FORMAT* clientFormat = &rdpsnd->ClientFormats[index];
-		Stream_Write_UINT16(pdu, clientFormat->wFormatTag);
-		Stream_Write_UINT16(pdu, clientFormat->nChannels);
-		Stream_Write_UINT32(pdu, clientFormat->nSamplesPerSec);
-		Stream_Write_UINT32(pdu, clientFormat->nAvgBytesPerSec);
-		Stream_Write_UINT16(pdu, clientFormat->nBlockAlign);
-		Stream_Write_UINT16(pdu, clientFormat->wBitsPerSample);
-		Stream_Write_UINT16(pdu, clientFormat->cbSize);
 
-		if (clientFormat->cbSize > 0)
-			Stream_Write(pdu, clientFormat->data, clientFormat->cbSize);
+		if (!audio_format_write(pdu, clientFormat))
+		{
+			Stream_Free(pdu, TRUE);
+			return ERROR_INTERNAL_ERROR;
+		}
 	}
 
 	WLog_Print(rdpsnd->log, WLOG_DEBUG, "Client Audio Formats");
@@ -254,7 +231,7 @@ static UINT rdpsnd_recv_server_audio_formats_pdu(rdpsndPlugin* rdpsnd,
 	UINT16 wVersion;
 	UINT16 wNumberOfFormats;
 	UINT ret = ERROR_BAD_LENGTH;
-	rdpsnd_free_audio_formats(rdpsnd->ServerFormats, rdpsnd->NumberOfServerFormats);
+	audio_formats_free(rdpsnd->ServerFormats, rdpsnd->NumberOfServerFormats);
 	rdpsnd->NumberOfServerFormats = 0;
 	rdpsnd->ServerFormats = NULL;
 
@@ -275,8 +252,7 @@ static UINT rdpsnd_recv_server_audio_formats_pdu(rdpsndPlugin* rdpsnd,
 	if (Stream_GetRemainingLength(s) / 14 < wNumberOfFormats)
 		return ERROR_BAD_LENGTH;
 
-	rdpsnd->ServerFormats = (AUDIO_FORMAT*) calloc(wNumberOfFormats,
-	                        sizeof(AUDIO_FORMAT));
+	rdpsnd->ServerFormats = audio_formats_new(wNumberOfFormats);
 
 	if (!rdpsnd->ServerFormats)
 		return CHANNEL_RC_NO_MEMORY;
@@ -285,32 +261,8 @@ static UINT rdpsnd_recv_server_audio_formats_pdu(rdpsndPlugin* rdpsnd,
 	{
 		AUDIO_FORMAT* format = &rdpsnd->ServerFormats[index];
 
-		if (Stream_GetRemainingLength(s) < 14)
+		if (!audio_format_read(s, format))
 			goto out_fail;
-
-		Stream_Read_UINT16(s, format->wFormatTag); /* wFormatTag */
-		Stream_Read_UINT16(s, format->nChannels); /* nChannels */
-		Stream_Read_UINT32(s, format->nSamplesPerSec); /* nSamplesPerSec */
-		Stream_Read_UINT32(s, format->nAvgBytesPerSec); /* nAvgBytesPerSec */
-		Stream_Read_UINT16(s, format->nBlockAlign); /* nBlockAlign */
-		Stream_Read_UINT16(s, format->wBitsPerSample); /* wBitsPerSample */
-		Stream_Read_UINT16(s, format->cbSize); /* cbSize */
-
-		if (format->cbSize > 0)
-		{
-			if (Stream_GetRemainingLength(s) < format->cbSize)
-				goto out_fail;
-
-			format->data = (BYTE*) malloc(format->cbSize);
-
-			if (!format->data)
-			{
-				ret = CHANNEL_RC_NO_MEMORY;
-				goto out_fail;
-			}
-
-			Stream_Read(s, format->data, format->cbSize);
-		}
 	}
 
 	rdpsnd_select_supported_audio_formats(rdpsnd);
@@ -325,7 +277,7 @@ static UINT rdpsnd_recv_server_audio_formats_pdu(rdpsndPlugin* rdpsnd,
 
 	return ret;
 out_fail:
-	rdpsnd_free_audio_formats(rdpsnd->ServerFormats, rdpsnd->NumberOfServerFormats);
+	audio_formats_free(rdpsnd->ServerFormats, rdpsnd->NumberOfServerFormats);
 	rdpsnd->ServerFormats = NULL;
 	rdpsnd->NumberOfServerFormats = 0;
 	return ret;
@@ -380,6 +332,48 @@ static UINT rdpsnd_recv_training_pdu(rdpsndPlugin* rdpsnd, wStream* s)
 	return rdpsnd_send_training_confirm_pdu(rdpsnd, wTimeStamp, wPackSize);
 }
 
+static BOOL rdpsnd_ensure_device_is_open(rdpsndPlugin* rdpsnd, UINT32 wFormatNo,
+        const AUDIO_FORMAT* format)
+{
+	if (!rdpsnd)
+		return FALSE;
+
+	if (!rdpsnd->isOpen || (wFormatNo != rdpsnd->wCurrentFormatNo))
+	{
+		BOOL rc;
+		BOOL supported;
+		AUDIO_FORMAT deviceFormat = *format;
+		rdpsnd_recv_close_pdu(rdpsnd);
+		supported = IFCALLRESULT(FALSE, rdpsnd->device->FormatSupported, rdpsnd->device, format);
+
+		if (!supported)
+		{
+			deviceFormat.wFormatTag = WAVE_FORMAT_PCM;
+			deviceFormat.wBitsPerSample = 16;
+			deviceFormat.cbSize = 0;
+		}
+
+		WLog_Print(rdpsnd->log, WLOG_DEBUG, "Opening device with format %s [backend %s]",
+		           audio_format_get_tag_string(format->wFormatTag),
+		           audio_format_get_tag_string(deviceFormat.wFormatTag));
+		rc = IFCALLRESULT(FALSE, rdpsnd->device->Open, rdpsnd->device, &deviceFormat, rdpsnd->latency);
+
+		if (!rc)
+			return FALSE;
+
+		if (!supported)
+		{
+			if (!freerdp_dsp_context_reset(rdpsnd->dsp_context, format))
+				return FALSE;
+		}
+
+		rdpsnd->isOpen = TRUE;
+		rdpsnd->wCurrentFormatNo = wFormatNo;
+	}
+
+	return TRUE;
+}
+
 /**
  * Function description
  *
@@ -407,38 +401,10 @@ static UINT rdpsnd_recv_wave_info_pdu(rdpsndPlugin* rdpsnd, wStream* s,
 	rdpsnd->waveDataSize = BodySize - 8;
 	format = &rdpsnd->ClientFormats[wFormatNo];
 	WLog_Print(rdpsnd->log, WLOG_DEBUG, "WaveInfo: cBlockNo: %"PRIu8" wFormatNo: %"PRIu16" [%s]",
-	           rdpsnd->cBlockNo, wFormatNo, rdpsnd_get_audio_tag_string(format->wFormatTag));
+	           rdpsnd->cBlockNo, wFormatNo, audio_format_get_tag_string(format->wFormatTag));
 
-	if (!rdpsnd->isOpen || (wFormatNo != rdpsnd->wCurrentFormatNo))
-	{
-		BOOL rc;
-		AUDIO_FORMAT deviceFormat = *format;
-		rdpsnd_recv_close_pdu(rdpsnd);
-		rc = IFCALLRESULT(FALSE, rdpsnd->device->FormatSupported, rdpsnd->device, format);
-
-		if (!rc)
-		{
-			deviceFormat.wFormatTag = WAVE_FORMAT_PCM;
-			deviceFormat.wBitsPerSample = 16;
-			deviceFormat.cbSize = 0;
-		}
-
-		rc = IFCALLRESULT(FALSE, rdpsnd->device->Open, rdpsnd->device, &deviceFormat, rdpsnd->latency);
-
-		if (!rc)
-			return CHANNEL_RC_INITIALIZATION_ERROR;
-
-		rc = IFCALLRESULT(FALSE, rdpsnd->device->FormatSupported, rdpsnd->device, format);
-
-		if (!rc)
-		{
-			if (!freerdp_dsp_context_reset(rdpsnd->dsp_context, format))
-				return CHANNEL_RC_INITIALIZATION_ERROR;
-		}
-
-		rdpsnd->isOpen = TRUE;
-		rdpsnd->wCurrentFormatNo = wFormatNo;
-	}
+	if (!rdpsnd_ensure_device_is_open(rdpsnd, wFormatNo, format))
+		return ERROR_INTERNAL_ERROR;
 
 	rdpsnd->expectingWave = TRUE;
 	return CHANNEL_RC_OK;
@@ -483,8 +449,8 @@ static UINT rdpsnd_treat_wave(rdpsndPlugin* rdpsnd, wStream* s, size_t size)
 
 	data = Stream_Pointer(s);
 	format = &rdpsnd->ClientFormats[rdpsnd->wCurrentFormatNo];
-	WLog_Print(rdpsnd->log, WLOG_DEBUG, "Wave: cBlockNo: %"PRIu8" wTimeStamp: %"PRIu16"",
-	           rdpsnd->cBlockNo, rdpsnd->wTimeStamp);
+	WLog_Print(rdpsnd->log, WLOG_DEBUG, "Wave: cBlockNo: %"PRIu8" wTimeStamp: %"PRIu16", size: %"PRIdz,
+	           rdpsnd->cBlockNo, rdpsnd->wTimeStamp, size);
 
 	if (rdpsnd->device && rdpsnd->attached)
 	{
@@ -522,12 +488,16 @@ static UINT rdpsnd_treat_wave(rdpsndPlugin* rdpsnd, wStream* s, size_t size)
 static UINT rdpsnd_recv_wave_pdu(rdpsndPlugin* rdpsnd, wStream* s)
 {
 	rdpsnd->expectingWave = FALSE;
+
 	/**
 	 * The Wave PDU is a special case: it is always sent after a Wave Info PDU,
 	 * and we do not process its header. Instead, the header is pad that needs
 	 * to be filled with the first four bytes of the audio sample data sent as
 	 * part of the preceding Wave Info PDU.
 	 */
+	if (Stream_GetRemainingLength(s) < 4)
+		return ERROR_INVALID_DATA;
+
 	CopyMemory(Stream_Buffer(s), rdpsnd->waveData, 4);
 	return rdpsnd_treat_wave(rdpsnd, s, rdpsnd->waveDataSize);
 }
@@ -549,51 +519,25 @@ static UINT rdpsnd_recv_wave2_pdu(rdpsndPlugin* rdpsnd, wStream* s, UINT16 BodyS
 	rdpsnd->waveDataSize = BodySize - 12;
 	format = &rdpsnd->ClientFormats[wFormatNo];
 	rdpsnd->wArrivalTime = GetTickCount();
-	WLog_Print(rdpsnd->log, WLOG_DEBUG, "Wave2PDU: cBlockNo: %"PRIu8" wFormatNo: %"PRIu16"",
-	           rdpsnd->cBlockNo, wFormatNo);
+	WLog_Print(rdpsnd->log, WLOG_DEBUG, "Wave2PDU: cBlockNo: %"PRIu8" wFormatNo: %"PRIu16", align=%hu",
+	           rdpsnd->cBlockNo, wFormatNo, format->nBlockAlign);
 
-	if (!rdpsnd->isOpen || (wFormatNo != rdpsnd->wCurrentFormatNo))
-	{
-		BOOL rc;
-		AUDIO_FORMAT deviceFormat = *format;
-		rdpsnd_recv_close_pdu(rdpsnd);
-		rc = IFCALLRESULT(FALSE, rdpsnd->device->FormatSupported, rdpsnd->device, format);
-
-		if (!rc)
-		{
-			deviceFormat.wFormatTag = WAVE_FORMAT_PCM;
-			deviceFormat.wBitsPerSample = 16;
-			deviceFormat.cbSize = 0;
-		}
-
-		rc = IFCALLRESULT(FALSE, rdpsnd->device->Open, rdpsnd->device, &deviceFormat, rdpsnd->latency);
-
-		if (!rc)
-			return CHANNEL_RC_INITIALIZATION_ERROR;
-
-		rc = IFCALLRESULT(FALSE, rdpsnd->device->FormatSupported, rdpsnd->device, format);
-
-		if (!rc)
-		{
-			if (!freerdp_dsp_context_reset(rdpsnd->dsp_context, format))
-				return CHANNEL_RC_INITIALIZATION_ERROR;
-		}
-
-		rdpsnd->isOpen = TRUE;
-		rdpsnd->wCurrentFormatNo = wFormatNo;
-	}
+	if (!rdpsnd_ensure_device_is_open(rdpsnd, wFormatNo, format))
+		return ERROR_INTERNAL_ERROR;
 
 	return rdpsnd_treat_wave(rdpsnd, s, rdpsnd->waveDataSize);
 }
 
 static void rdpsnd_recv_close_pdu(rdpsndPlugin* rdpsnd)
 {
-	WLog_Print(rdpsnd->log, WLOG_DEBUG, "Close");
-
 	if (rdpsnd->isOpen)
+	{
+		WLog_Print(rdpsnd->log, WLOG_DEBUG, "Closing device");
 		IFCALL(rdpsnd->device->Close, rdpsnd->device);
-
-	rdpsnd->isOpen = FALSE;
+		rdpsnd->isOpen = FALSE;
+	}
+	else
+		WLog_Print(rdpsnd->log, WLOG_DEBUG, "Device already closed");
 }
 
 /**
@@ -603,7 +547,7 @@ static void rdpsnd_recv_close_pdu(rdpsndPlugin* rdpsnd)
  */
 static UINT rdpsnd_recv_volume_pdu(rdpsndPlugin* rdpsnd, wStream* s)
 {
-	BOOL error;
+	BOOL rc;
 	UINT32 dwVolume;
 
 	if (Stream_GetRemainingLength(s) < 4)
@@ -611,9 +555,9 @@ static UINT rdpsnd_recv_volume_pdu(rdpsndPlugin* rdpsnd, wStream* s)
 
 	Stream_Read_UINT32(s, dwVolume);
 	WLog_Print(rdpsnd->log, WLOG_DEBUG, "Volume: 0x%08"PRIX32"", dwVolume);
-	error = IFCALLRESULT(FALSE, rdpsnd->device->SetVolume, rdpsnd->device, dwVolume);
+	rc = IFCALLRESULT(FALSE, rdpsnd->device->SetVolume, rdpsnd->device, dwVolume);
 
-	if (error)
+	if (!rc)
 	{
 		WLog_ERR(TAG, "error setting volume");
 		return CHANNEL_RC_INITIALIZATION_ERROR;
@@ -799,7 +743,7 @@ static UINT rdpsnd_process_addin_args(rdpsndPlugin* rdpsnd, ADDIN_ARGV* args)
 				if ((errno != 0) || (val > UINT16_MAX))
 					return CHANNEL_RC_INITIALIZATION_ERROR;
 
-				rdpsnd->fixedFormat = val;
+				rdpsnd->fixed_format->wFormatTag = val;
 			}
 			CommandLineSwitchCase(arg, "rate")
 			{
@@ -808,7 +752,7 @@ static UINT rdpsnd_process_addin_args(rdpsndPlugin* rdpsnd, ADDIN_ARGV* args)
 				if ((errno != 0) || (val > UINT32_MAX))
 					return CHANNEL_RC_INITIALIZATION_ERROR;
 
-				rdpsnd->fixedRate = val;
+				rdpsnd->fixed_format->nSamplesPerSec = val;
 			}
 			CommandLineSwitchCase(arg, "channel")
 			{
@@ -817,7 +761,7 @@ static UINT rdpsnd_process_addin_args(rdpsndPlugin* rdpsnd, ADDIN_ARGV* args)
 				if ((errno != 0) || (val > UINT16_MAX))
 					return CHANNEL_RC_INITIALIZATION_ERROR;
 
-				rdpsnd->fixedChannel = val;
+				rdpsnd->fixed_format->nChannels = val;
 			}
 			CommandLineSwitchCase(arg, "latency")
 			{
@@ -1225,10 +1169,10 @@ static UINT rdpsnd_virtual_channel_event_disconnected(rdpsndPlugin* rdpsnd)
 	StreamPool_Return(rdpsnd->pool, rdpsnd->data_in);
 	StreamPool_Free(rdpsnd->pool);
 	Queue_Free(rdpsnd->queue);
-	rdpsnd_free_audio_formats(rdpsnd->ClientFormats, rdpsnd->NumberOfClientFormats);
+	audio_formats_free(rdpsnd->ClientFormats, rdpsnd->NumberOfClientFormats);
 	rdpsnd->NumberOfClientFormats = 0;
 	rdpsnd->ClientFormats = NULL;
-	rdpsnd_free_audio_formats(rdpsnd->ServerFormats, rdpsnd->NumberOfServerFormats);
+	audio_formats_free(rdpsnd->ServerFormats, rdpsnd->NumberOfServerFormats);
 	rdpsnd->NumberOfServerFormats = 0;
 	rdpsnd->ServerFormats = NULL;
 
@@ -1245,6 +1189,7 @@ static void rdpsnd_virtual_channel_event_terminated(rdpsndPlugin* rdpsnd)
 {
 	if (rdpsnd)
 	{
+		audio_formats_free(rdpsnd->fixed_format, 1);
 		free(rdpsnd->subsystem);
 		free(rdpsnd->device_name);
 		CloseHandle(rdpsnd->stopEvent);
@@ -1331,13 +1276,21 @@ BOOL VCAPITYPE VirtualChannelEntryEx(PCHANNEL_ENTRY_POINTS pEntryPoints, PVOID p
 	rdpsnd->channelDef.options =
 	    CHANNEL_OPTION_INITIALIZED |
 	    CHANNEL_OPTION_ENCRYPT_RDP;
-	strcpy(rdpsnd->channelDef.name, "rdpsnd");
+	sprintf_s(rdpsnd->channelDef.name, ARRAYSIZE(rdpsnd->channelDef.name), "rdpsnd");
 	pEntryPointsEx = (CHANNEL_ENTRY_POINTS_FREERDP_EX*) pEntryPoints;
 
 	if ((pEntryPointsEx->cbSize >= sizeof(CHANNEL_ENTRY_POINTS_FREERDP_EX)) &&
 	    (pEntryPointsEx->MagicNumber == FREERDP_CHANNEL_MAGIC_NUMBER))
 	{
 		rdpsnd->rdpcontext = pEntryPointsEx->context;
+	}
+
+	rdpsnd->fixed_format = audio_format_new();
+
+	if (!rdpsnd->fixed_format)
+	{
+		free(rdpsnd);
+		return FALSE;
 	}
 
 	rdpsnd->log = WLog_Get("com.freerdp.channels.rdpsnd.client");

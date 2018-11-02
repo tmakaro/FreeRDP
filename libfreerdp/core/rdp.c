@@ -181,14 +181,21 @@ void rdp_write_share_data_header(wStream* s, UINT16 length, BYTE type, UINT32 sh
 	Stream_Write_UINT16(s, 0); /* compressedLength (2 bytes) */
 }
 
-static int rdp_security_stream_init(rdpRdp* rdp, wStream* s, BOOL sec_header)
+static BOOL rdp_security_stream_init(rdpRdp* rdp, wStream* s, BOOL sec_header)
 {
+	if (!rdp || !s)
+		return FALSE;
+
 	if (rdp->do_crypt)
 	{
-		Stream_Seek(s, 12);
+		if (!Stream_SafeSeek(s, 12))
+			return FALSE;
 
 		if (rdp->settings->EncryptionMethods == ENCRYPTION_METHOD_FIPS)
-			Stream_Seek(s, 4);
+		{
+			if (!Stream_SafeSeek(s, 4))
+				return FALSE;
+		}
 
 		rdp->sec_flags |= SEC_ENCRYPT;
 
@@ -197,53 +204,62 @@ static int rdp_security_stream_init(rdpRdp* rdp, wStream* s, BOOL sec_header)
 	}
 	else if (rdp->sec_flags != 0 || sec_header)
 	{
-		Stream_Seek(s, 4);
+		if (!Stream_SafeSeek(s, 4))
+			return FALSE;
 	}
 
-	return 0;
-}
-
-int rdp_init_stream(rdpRdp* rdp, wStream* s)
-{
-	Stream_Seek(s, RDP_PACKET_HEADER_MAX_LENGTH);
-	return rdp_security_stream_init(rdp, s, FALSE);
+	return TRUE;
 }
 
 wStream* rdp_send_stream_init(rdpRdp* rdp)
 {
-	wStream* s;
-	s = transport_send_stream_init(rdp->transport, 2048);
-	rdp_init_stream(rdp, s);
-	return s;
-}
-
-int rdp_init_stream_pdu(rdpRdp* rdp, wStream* s)
-{
-	Stream_Seek(s, RDP_PACKET_HEADER_MAX_LENGTH);
-	rdp_security_stream_init(rdp, s, FALSE);
-	Stream_Seek(s, RDP_SHARE_CONTROL_HEADER_LENGTH);
-	return 0;
-}
-
-int rdp_init_stream_data_pdu(rdpRdp* rdp, wStream* s)
-{
-	Stream_Seek(s, RDP_PACKET_HEADER_MAX_LENGTH);
-	rdp_security_stream_init(rdp, s, FALSE);
-	Stream_Seek(s, RDP_SHARE_CONTROL_HEADER_LENGTH);
-	Stream_Seek(s, RDP_SHARE_DATA_HEADER_LENGTH);
-	return 0;
-}
-
-wStream* rdp_data_pdu_init(rdpRdp* rdp)
-{
-	wStream* s;
-	s = transport_send_stream_init(rdp->transport, 2048);
+	wStream* s = transport_send_stream_init(rdp->transport, 4096);
 
 	if (!s)
 		return NULL;
 
-	rdp_init_stream_data_pdu(rdp, s);
+	if (!Stream_SafeSeek(s, RDP_PACKET_HEADER_MAX_LENGTH))
+		goto fail;
+
+	if (!rdp_security_stream_init(rdp, s, FALSE))
+		goto fail;
+
 	return s;
+fail:
+	Stream_Release(s);
+	return NULL;
+}
+
+wStream* rdp_send_stream_pdu_init(rdpRdp* rdp)
+{
+	wStream* s = rdp_send_stream_init(rdp);
+
+	if (!s)
+		return NULL;
+
+	if (!Stream_SafeSeek(s, RDP_SHARE_CONTROL_HEADER_LENGTH))
+		goto fail;
+
+	return s;
+fail:
+	Stream_Release(s);
+	return NULL;
+}
+
+wStream* rdp_data_pdu_init(rdpRdp* rdp)
+{
+	wStream* s = rdp_send_stream_pdu_init(rdp);
+
+	if (!s)
+		return NULL;
+
+	if (!Stream_SafeSeek(s, RDP_SHARE_DATA_HEADER_LENGTH))
+		goto fail;
+
+	return s;
+fail:
+	Stream_Release(s);
+	return NULL;
 }
 
 BOOL rdp_set_error_info(rdpRdp* rdp, UINT32 errorInfo)
@@ -278,15 +294,21 @@ BOOL rdp_set_error_info(rdpRdp* rdp, UINT32 errorInfo)
 
 wStream* rdp_message_channel_pdu_init(rdpRdp* rdp)
 {
-	wStream* s;
-	s = transport_send_stream_init(rdp->transport, 2048);
+	wStream* s = transport_send_stream_init(rdp->transport, 4096);
 
 	if (!s)
 		return NULL;
 
-	Stream_Seek(s, RDP_PACKET_HEADER_MAX_LENGTH);
-	rdp_security_stream_init(rdp, s, TRUE);
+	if (!Stream_SafeSeek(s, RDP_PACKET_HEADER_MAX_LENGTH))
+		goto fail;
+
+	if (!rdp_security_stream_init(rdp, s, TRUE))
+		goto fail;
+
 	return s;
+fail:
+	Stream_Release(s);
+	return NULL;
 }
 
 /**
@@ -358,6 +380,7 @@ BOOL rdp_read_header(rdpRdp* rdp, wStream* s, UINT16* length, UINT16* channelId)
 			return FALSE;
 
 		context = rdp->instance->context;
+		context->disconnectUltimatum = reason;
 
 		if (rdp->errorInfo == ERRINFO_SUCCESS)
 		{
@@ -366,9 +389,9 @@ BOOL rdp_read_header(rdpRdp* rdp, wStream* s, UINT16* length, UINT16* channelId)
 			 * when the user logs off like they should. Map DisconnectProviderUltimatum
 			 * to a ERRINFO_LOGOFF_BY_USER when the errinfo code is ERRINFO_SUCCESS.
 			 */
-			if (reason == MCS_Reason_provider_initiated)
+			if (reason == Disconnect_Ultimatum_provider_initiated)
 				rdp_set_error_info(rdp, ERRINFO_RPC_INITIATED_DISCONNECT);
-			else if (reason == MCS_Reason_user_requested)
+			else if (reason == Disconnect_Ultimatum_user_requested)
 				rdp_set_error_info(rdp, ERRINFO_LOGOFF_BY_USER);
 			else
 				rdp_set_error_info(rdp, ERRINFO_RPC_INITIATED_DISCONNECT);
@@ -536,23 +559,34 @@ static UINT32 rdp_get_sec_bytes(rdpRdp* rdp, UINT16 sec_flags)
 
 BOOL rdp_send(rdpRdp* rdp, wStream* s, UINT16 channel_id)
 {
+	BOOL rc = FALSE;
 	UINT32 pad;
 	UINT16 length;
+
+	if (!s)
+		return FALSE;
+
+	if (!rdp)
+		goto fail;
+
 	length = Stream_GetPosition(s);
 	Stream_SetPosition(s, 0);
 	rdp_write_header(rdp, s, length, channel_id);
 
 	if (!rdp_security_stream_out(rdp, s, length, 0, &pad))
-		return FALSE;
+		goto fail;
 
 	length += pad;
 	Stream_SetPosition(s, length);
 	Stream_SealLength(s);
 
 	if (transport_write(rdp->transport, s) < 0)
-		return FALSE;
+		goto fail;
 
-	return TRUE;
+	rc = TRUE;
+fail:
+	Stream_Release(s);
+	return rc;
 }
 
 BOOL rdp_send_pdu(rdpRdp* rdp, wStream* s, UINT16 type, UINT16 channel_id)
@@ -561,6 +595,10 @@ BOOL rdp_send_pdu(rdpRdp* rdp, wStream* s, UINT16 type, UINT16 channel_id)
 	UINT32 sec_bytes;
 	size_t sec_hold;
 	UINT32 pad;
+
+	if (!rdp || !s)
+		return FALSE;
+
 	length = Stream_GetPosition(s);
 	Stream_SetPosition(s, 0);
 	rdp_write_header(rdp, s, length, MCS_GLOBAL_CHANNEL_ID);
@@ -585,10 +623,18 @@ BOOL rdp_send_pdu(rdpRdp* rdp, wStream* s, UINT16 type, UINT16 channel_id)
 
 BOOL rdp_send_data_pdu(rdpRdp* rdp, wStream* s, BYTE type, UINT16 channel_id)
 {
+	BOOL rc = FALSE;
 	size_t length;
 	UINT32 sec_bytes;
 	size_t sec_hold;
 	UINT32 pad;
+
+	if (!s)
+		return FALSE;
+
+	if (!rdp)
+		goto fail;
+
 	length = Stream_GetPosition(s);
 	Stream_SetPosition(s, 0);
 	rdp_write_header(rdp, s, length, MCS_GLOBAL_CHANNEL_ID);
@@ -600,7 +646,7 @@ BOOL rdp_send_data_pdu(rdpRdp* rdp, wStream* s, BYTE type, UINT16 channel_id)
 	Stream_SetPosition(s, sec_hold);
 
 	if (!rdp_security_stream_out(rdp, s, length, 0, &pad))
-		return FALSE;
+		goto fail;
 
 	length += pad;
 	Stream_SetPosition(s, length);
@@ -609,30 +655,44 @@ BOOL rdp_send_data_pdu(rdpRdp* rdp, wStream* s, BYTE type, UINT16 channel_id)
 	         type, Stream_Length(s), channel_id);
 
 	if (transport_write(rdp->transport, s) < 0)
-		return FALSE;
+		goto fail;
 
-	return TRUE;
+	rc = TRUE;
+fail:
+	Stream_Release(s);
+	return rc;
 }
 
 BOOL rdp_send_message_channel_pdu(rdpRdp* rdp, wStream* s, UINT16 sec_flags)
 {
+	BOOL rc = FALSE;
 	UINT16 length;
 	UINT32 pad;
+
+	if (!s)
+		return FALSE;
+
+	if (!rdp)
+		goto fail;
+
 	length = Stream_GetPosition(s);
 	Stream_SetPosition(s, 0);
 	rdp_write_header(rdp, s, length, rdp->mcs->messageChannelId);
 
 	if (!rdp_security_stream_out(rdp, s, length, sec_flags, &pad))
-		return FALSE;
+		goto fail;
 
 	length += pad;
 	Stream_SetPosition(s, length);
 	Stream_SealLength(s);
 
 	if (transport_write(rdp->transport, s) < 0)
-		return FALSE;
+		goto fail;
 
-	return TRUE;
+	rc = TRUE;
+fail:
+	Stream_Release(s);
+	return rc;
 }
 
 static BOOL rdp_recv_server_shutdown_denied_pdu(rdpRdp* rdp, wStream* s)
@@ -1512,16 +1572,15 @@ int rdp_check_fds(rdpRdp* rdp)
 	if (transport->tsg)
 	{
 		rdpTsg* tsg = transport->tsg;
-		status = tsg_check_event_handles(tsg);
 
-		if (status < 0)
+		if (!tsg_check_event_handles(tsg))
 		{
-			WLog_ERR(TAG, "rdp_check_fds: tsg_check_event_handles() - %i", status);
+			WLog_ERR(TAG, "rdp_check_fds: tsg_check_event_handles()");
 			return -1;
 		}
 
-		if (tsg->state != TSG_STATE_PIPE_CREATED)
-			return status;
+		if (tsg_get_state(tsg) != TSG_STATE_PIPE_CREATED)
+			return 1;
 	}
 
 	status = transport_check_fds(transport);

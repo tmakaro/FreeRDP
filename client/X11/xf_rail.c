@@ -91,6 +91,11 @@ void xf_rail_send_activate(xfContext* xfc, Window xwindow, BOOL enabled)
 	if (!appWindow)
 		return;
 
+	if (enabled)
+		xf_SetWindowStyle(xfc, appWindow, appWindow->dwStyle, appWindow->dwExStyle);
+	else
+		xf_SetWindowStyle(xfc, appWindow, 0, 0);
+
 	activate.windowId = appWindow->windowId;
 	activate.enabled = enabled;
 	xfc->rail->ClientActivate(xfc->rail, &activate);
@@ -195,7 +200,6 @@ static void xf_rail_invalidate_region(xfContext* xfc, REGION16* invalidRegion)
 	xfAppWindow* appWindow;
 	const RECTANGLE_16* extents;
 	REGION16 windowInvalidRegion;
-
 	region16_init(&windowInvalidRegion);
 	count = HashTable_GetKeys(xfc->railWindows, &pKeys);
 
@@ -631,7 +635,7 @@ static void xf_rail_register_update_callbacks(rdpUpdate* update)
  * @return 0 on success, otherwise a Win32 error code
  */
 static UINT xf_rail_server_execute_result(RailClientContext* context,
-        RAIL_EXEC_RESULT_ORDER* execResult)
+        const RAIL_EXEC_RESULT_ORDER* execResult)
 {
 	xfContext* xfc = (xfContext*) context->custom;
 
@@ -655,7 +659,7 @@ static UINT xf_rail_server_execute_result(RailClientContext* context,
  * @return 0 on success, otherwise a Win32 error code
  */
 static UINT xf_rail_server_system_param(RailClientContext* context,
-                                        RAIL_SYSPARAM_ORDER* sysparam)
+                                        const RAIL_SYSPARAM_ORDER* sysparam)
 {
 	return CHANNEL_RC_OK;
 }
@@ -666,7 +670,7 @@ static UINT xf_rail_server_system_param(RailClientContext* context,
  * @return 0 on success, otherwise a Win32 error code
  */
 static UINT xf_rail_server_handshake(RailClientContext* context,
-                                     RAIL_HANDSHAKE_ORDER* handshake)
+                                     const RAIL_HANDSHAKE_ORDER* handshake)
 {
 	RAIL_EXEC_ORDER exec;
 	RAIL_SYSPARAM_ORDER sysparam;
@@ -722,7 +726,7 @@ static UINT xf_rail_server_handshake(RailClientContext* context,
  * @return 0 on success, otherwise a Win32 error code
  */
 static UINT xf_rail_server_handshake_ex(RailClientContext* context,
-                                        RAIL_HANDSHAKE_EX_ORDER* handshakeEx)
+                                        const RAIL_HANDSHAKE_EX_ORDER* handshakeEx)
 {
 	return CHANNEL_RC_OK;
 }
@@ -733,7 +737,7 @@ static UINT xf_rail_server_handshake_ex(RailClientContext* context,
  * @return 0 on success, otherwise a Win32 error code
  */
 static UINT xf_rail_server_local_move_size(RailClientContext* context,
-        RAIL_LOCALMOVESIZE_ORDER* localMoveSize)
+        const RAIL_LOCALMOVESIZE_ORDER* localMoveSize)
 {
 	int x = 0, y = 0;
 	int direction = 0;
@@ -832,7 +836,7 @@ static UINT xf_rail_server_local_move_size(RailClientContext* context,
  * @return 0 on success, otherwise a Win32 error code
  */
 static UINT xf_rail_server_min_max_info(RailClientContext* context,
-                                        RAIL_MINMAXINFO_ORDER* minMaxInfo)
+                                        const RAIL_MINMAXINFO_ORDER* minMaxInfo)
 {
 	xfAppWindow* appWindow = NULL;
 	xfContext* xfc = (xfContext*) context->custom;
@@ -857,7 +861,7 @@ static UINT xf_rail_server_min_max_info(RailClientContext* context,
  * @return 0 on success, otherwise a Win32 error code
  */
 static UINT xf_rail_server_language_bar_info(RailClientContext* context,
-        RAIL_LANGBAR_INFO_ORDER* langBarInfo)
+        const RAIL_LANGBAR_INFO_ORDER* langBarInfo)
 {
 	return CHANNEL_RC_OK;
 }
@@ -868,7 +872,7 @@ static UINT xf_rail_server_language_bar_info(RailClientContext* context,
  * @return 0 on success, otherwise a Win32 error code
  */
 static UINT xf_rail_server_get_appid_response(RailClientContext* context,
-        RAIL_GET_APPID_RESP_ORDER* getAppIdResp)
+        const RAIL_GET_APPID_RESP_ORDER* getAppIdResp)
 {
 	return CHANNEL_RC_OK;
 }

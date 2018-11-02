@@ -101,6 +101,7 @@
 #include "xf_channels.h"
 #include "xfreerdp.h"
 
+
 #include <freerdp/log.h>
 #define TAG CLIENT_TAG("x11")
 
@@ -283,11 +284,6 @@ static BOOL xf_desktop_resize(rdpContext* context)
 	return TRUE;
 }
 
-static BOOL xf_sw_begin_paint(rdpContext* context)
-{
-	return TRUE;
-}
-
 static BOOL xf_sw_end_paint(rdpContext* context)
 {
 	int i;
@@ -388,11 +384,6 @@ static BOOL xf_sw_desktop_resize(rdpContext* context)
 out:
 	xf_unlock_x11(xfc, TRUE);
 	return ret;
-}
-
-static BOOL xf_hw_begin_paint(rdpContext* context)
-{
-	return TRUE;
 }
 
 static BOOL xf_hw_end_paint(rdpContext* context)
@@ -551,16 +542,26 @@ BOOL xf_create_window(xfContext* xfc)
 		}
 		else if (settings->ServerPort == 3389)
 		{
-			windowTitle = malloc(1 + sizeof("FreeRDP: ") + strlen(
-			                         settings->ServerHostname));
-			sprintf(windowTitle, "FreeRDP: %s", settings->ServerHostname);
+			size_t size = 1 + sizeof("FreeRDP: ") + strlen(
+			                  settings->ServerHostname);
+			windowTitle = malloc(size);
+
+			if (!windowTitle)
+				return FALSE;
+
+			sprintf_s(windowTitle, size, "FreeRDP: %s", settings->ServerHostname);
 		}
 		else
 		{
-			windowTitle = malloc(1 + sizeof("FreeRDP: ") + strlen(settings->ServerHostname)
-			                     + sizeof(":00000"));
-			sprintf(windowTitle, "FreeRDP: %s:%i", settings->ServerHostname,
-			        settings->ServerPort);
+			size_t size = 1 + sizeof("FreeRDP: ") + strlen(settings->ServerHostname)
+			              + sizeof(":00000");
+			windowTitle = malloc(size);
+
+			if (!windowTitle)
+				return FALSE;
+
+			sprintf_s(windowTitle, size, "FreeRDP: %s:%i", settings->ServerHostname,
+			          settings->ServerPort);
 		}
 
 #ifdef WITH_XRENDER
@@ -703,6 +704,16 @@ void xf_toggle_fullscreen(xfContext* xfc)
 	WindowStateChangeEventArgs e;
 	rdpContext* context = (rdpContext*) xfc;
 	rdpSettings* settings = context->settings;
+
+	/*
+	  when debugging, ungrab keyboard when toggling fullscreen
+	  to allow keyboard usage on the debugger
+	*/
+	if (xfc->debug)
+	{
+		XUngrabKeyboard(xfc->display, CurrentTime);
+	}
+
 	xfc->fullscreen = (xfc->fullscreen) ? FALSE : TRUE;
 	xfc->decorations = (xfc->fullscreen) ? FALSE : settings->Decorations;
 	xf_SetWindowFullscreen(xfc, xfc->window, xfc->fullscreen);
@@ -1107,9 +1118,9 @@ static BOOL xf_pre_connect(freerdp* instance)
 	settings->OrderSupport[NEG_MEMBLT_V2_INDEX] = settings->BitmapCacheEnabled;
 	settings->OrderSupport[NEG_MEM3BLT_V2_INDEX] = settings->BitmapCacheEnabled;
 	settings->OrderSupport[NEG_SAVEBITMAP_INDEX] = FALSE;
-	settings->OrderSupport[NEG_GLYPH_INDEX_INDEX] = TRUE;
-	settings->OrderSupport[NEG_FAST_INDEX_INDEX] = TRUE;
-	settings->OrderSupport[NEG_FAST_GLYPH_INDEX] = TRUE;
+	settings->OrderSupport[NEG_GLYPH_INDEX_INDEX] = settings->GlyphSupportLevel != GLYPH_SUPPORT_NONE;
+	settings->OrderSupport[NEG_FAST_INDEX_INDEX] = settings->GlyphSupportLevel != GLYPH_SUPPORT_NONE;
+	settings->OrderSupport[NEG_FAST_GLYPH_INDEX] = settings->GlyphSupportLevel != GLYPH_SUPPORT_NONE;
 	settings->OrderSupport[NEG_POLYGON_SC_INDEX] = FALSE;
 	settings->OrderSupport[NEG_POLYGON_CB_INDEX] = FALSE;
 	settings->OrderSupport[NEG_ELLIPSE_SC_INDEX] = FALSE;
@@ -1122,7 +1133,7 @@ static BOOL xf_pre_connect(freerdp* instance)
 	if (!freerdp_client_load_addins(channels, instance->settings))
 		return FALSE;
 
-	if (!settings->Username && !settings->CredentialsFromStdin)
+	if (!settings->Username && !settings->CredentialsFromStdin && !settings->SmartcardLogon)
 	{
 		char* login_name = getlogin();
 
@@ -1178,6 +1189,7 @@ static BOOL xf_pre_connect(freerdp* instance)
 	xfc->decorations = settings->Decorations;
 	xfc->grab_keyboard = settings->GrabKeyboard;
 	xfc->fullscreen_toggle = settings->ToggleFullscreen;
+	xfc->floatbar = settings->Floatbar;
 	xf_button_map_init(xfc);
 	return TRUE;
 }
@@ -1253,13 +1265,11 @@ static BOOL xf_post_connect(freerdp* instance)
 
 	if (settings->SoftwareGdi)
 	{
-		update->BeginPaint = xf_sw_begin_paint;
 		update->EndPaint = xf_sw_end_paint;
 		update->DesktopResize = xf_sw_desktop_resize;
 	}
 	else
 	{
-		update->BeginPaint = xf_hw_begin_paint;
 		update->EndPaint = xf_hw_end_paint;
 		update->DesktopResize = xf_hw_desktop_resize;
 	}
@@ -1414,46 +1424,25 @@ static DWORD WINAPI xf_input_thread(LPVOID arg)
 	return 0;
 }
 
-static BOOL xf_auto_reconnect(freerdp* instance)
+static BOOL handle_window_events(freerdp* instance)
 {
-	UINT32 maxRetries;
-	UINT32 numRetries = 0;
-	rdpSettings* settings = instance->settings;
-	maxRetries = settings->AutoReconnectMaxRetries;
+	rdpSettings* settings;
 
-	/* Only auto reconnect on network disconnects. */
-	if (freerdp_error_info(instance) != 0)
+	if (!instance || !instance->settings)
 		return FALSE;
 
-	/* A network disconnect was detected */
-	WLog_INFO(TAG, "Network disconnect!");
+	settings = instance->settings;
 
-	if (!settings->AutoReconnectionEnabled)
+	if (!settings->AsyncInput)
 	{
-		/* No auto-reconnect - just quit */
-		return FALSE;
-	}
-
-	/* Perform an auto-reconnect. */
-	while (TRUE)
-	{
-		/* Quit retrying if max retries has been exceeded */
-		if ((maxRetries > 0) && (numRetries++ >= maxRetries))
+		if (!xf_process_x_events(instance))
 		{
+			WLog_INFO(TAG, "Closed from X11");
 			return FALSE;
 		}
-
-		/* Attempt the next reconnect */
-		WLog_INFO(TAG, "Attempting reconnect (%"PRIu32" of %"PRIu32")", numRetries, maxRetries);
-
-		if (freerdp_reconnect(instance))
-			return TRUE;
-
-		sleep(5);
 	}
 
-	WLog_ERR(TAG, "Maximum reconnect retries exceeded");
-	return FALSE;
+	return TRUE;
 }
 
 /** Main loop for the rdp connection.
@@ -1490,6 +1479,8 @@ static DWORD WINAPI xf_client_thread(LPVOID param)
 		if (freerdp_get_last_error(instance->context) ==
 		    FREERDP_ERROR_AUTHENTICATION_FAILED)
 			exit_code = XF_EXIT_AUTH_FAILURE;
+		else if (freerdp_get_last_error(instance->context) == FREERDP_ERROR_SECURITY_NEGO_CONNECT_FAILED)
+			exit_code = XF_EXIT_NEGO_FAILURE;
 		else
 			exit_code = XF_EXIT_CONN_FAILED;
 	}
@@ -1569,7 +1560,6 @@ static DWORD WINAPI xf_client_thread(LPVOID param)
 			xf_keyboard_focus_in(xfc);
 		}
 
-		if (!settings->AsyncTransport)
 		{
 			DWORD tmp = freerdp_get_event_handles(context, &handles[nCount], ARRAYSIZE(handles) - nCount);
 
@@ -1582,17 +1572,28 @@ static DWORD WINAPI xf_client_thread(LPVOID param)
 			nCount += tmp;
 		}
 
+		if (xfc->floatbar && xfc->fullscreen && !xfc->remote_app)
+			xf_floatbar_hide_and_show(xfc);
+
 		waitStatus = WaitForMultipleObjects(nCount, handles, FALSE, INFINITE);
 
 		if (waitStatus == WAIT_FAILED)
 			break;
 
-		if (!settings->AsyncTransport)
 		{
 			if (!freerdp_check_event_handles(context))
 			{
-				if (xf_auto_reconnect(instance))
+				if (client_auto_reconnect_ex(instance, handle_window_events))
 					continue;
+				else
+				{
+					/*
+					 * Indicate an unsuccessful connection attempt if reconnect
+					 * did not succeed and no other error was specified.
+					 */
+					if (freerdp_error_info(instance) == 0)
+						exit_code = XF_EXIT_CONN_FAILED;
+				}
 
 				if (freerdp_get_last_error(context) == FREERDP_ERROR_SUCCESS)
 					WLog_ERR(TAG, "Failed to check FreeRDP file descriptor");
@@ -1601,14 +1602,8 @@ static DWORD WINAPI xf_client_thread(LPVOID param)
 			}
 		}
 
-		if (!settings->AsyncInput)
-		{
-			if (!xf_process_x_events(instance))
-			{
-				WLog_INFO(TAG, "Closed from X11");
-				break;
-			}
-		}
+		if (!handle_window_events(instance))
+			break;
 
 		if ((status != WAIT_TIMEOUT) && (waitStatus == WAIT_OBJECT_0))
 		{
@@ -1624,7 +1619,18 @@ static DWORD WINAPI xf_client_thread(LPVOID param)
 	}
 
 	if (!exit_code)
+	{
 		exit_code = freerdp_error_info(instance);
+
+		if (exit_code == XF_EXIT_DISCONNECT &&
+		    freerdp_get_disconnect_ultimatum(context) == Disconnect_Ultimatum_user_requested)
+		{
+			/* This situation might be limited to Windows XP. */
+			WLog_INFO(TAG,
+			          "Error info says user did not initiate but disconnect ultimatum says they did; treat this as a user logoff");
+			exit_code = XF_EXIT_LOGOFF;
+		}
+	}
 
 disconnect:
 
@@ -1640,7 +1646,7 @@ end:
 DWORD xf_exit_code_from_disconnect_reason(DWORD reason)
 {
 	if (reason == 0 || (reason >= XF_EXIT_PARSE_ARGUMENTS
-	                    && reason <= XF_EXIT_AUTH_FAILURE))
+	                    && reason <= XF_EXIT_NEGO_FAILURE))
 		return reason;
 	/* License error set */
 	else if (reason >= 0x100 && reason <= 0x10A)
@@ -1795,7 +1801,8 @@ static BOOL xfreerdp_client_new(freerdp* instance, rdpContext* context)
 	                              xf_PanningChangeEventHandler);
 #endif
 	xfc->UseXThreads = TRUE;
-	//xfc->debug = TRUE;
+	/* uncomment below if debugging to prevent keyboard grap */
+	/* xfc->debug = TRUE; */
 
 	if (xfc->UseXThreads)
 	{
@@ -1877,6 +1884,8 @@ static BOOL xfreerdp_client_new(freerdp* instance, rdpContext* context)
 	                                  "_NET_WM_WINDOW_TYPE_DIALOG", False);
 	xfc->_NET_WM_WINDOW_TYPE_POPUP = XInternAtom(xfc->display,
 	                                 "_NET_WM_WINDOW_TYPE_POPUP", False);
+	xfc->_NET_WM_WINDOW_TYPE_POPUP_MENU = XInternAtom(xfc->display,
+	                                 "_NET_WM_WINDOW_TYPE_POPUP_MENU", False);
 	xfc->_NET_WM_WINDOW_TYPE_UTILITY = XInternAtom(xfc->display,
 	                                   "_NET_WM_WINDOW_TYPE_UTILITY", False);
 	xfc->_NET_WM_WINDOW_TYPE_DROPDOWN_MENU = XInternAtom(xfc->display,

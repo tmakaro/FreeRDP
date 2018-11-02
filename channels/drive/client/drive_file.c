@@ -53,8 +53,8 @@
 
 static void drive_file_fix_path(WCHAR* path)
 {
-	int i;
-	int length;
+	size_t i;
+	size_t length;
 	length = (int) _wcslen(path);
 
 	for (i = 0; i < length; i++)
@@ -330,11 +330,6 @@ DRIVE_FILE* drive_file_new(const WCHAR* base_path, const WCHAR* path, UINT32 Pat
 	{
 		WLog_ERR(TAG, "calloc failed!");
 		return NULL;
-	}
-
-	if (DesiredAccess & 0x1000L)
-	{
-		DesiredAccess = (DesiredAccess & ~0x1000L) | GENERIC_WRITE;
 	}
 
 	file->file_handle = INVALID_HANDLE_VALUE;
@@ -619,8 +614,6 @@ BOOL drive_file_set_information(DRIVE_FILE* file, UINT32 FsInformationClass, UIN
 				         GetLastError());
 				return FALSE;
 			}
-
-			liSize.QuadPart = size & 0xFFFFFFFF;
 
 			if (!SetFilePointerEx(file->file_handle, liSize, NULL, FILE_BEGIN))
 			{

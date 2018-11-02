@@ -169,15 +169,15 @@
 #define NEG_MEMBLT_INDEX			0x03
 #define NEG_MEM3BLT_INDEX			0x04
 #define NEG_ATEXTOUT_INDEX			0x05
-#define NEG_AEXTTEXTOUT_INDEX			0x06
-#define NEG_DRAWNINEGRID_INDEX			0x07
+#define NEG_AEXTTEXTOUT_INDEX			0x06 /* Must be ignored */
+#define NEG_DRAWNINEGRID_INDEX			0x07 /* Must be ignored */
 #define NEG_LINETO_INDEX			0x08
 #define NEG_MULTI_DRAWNINEGRID_INDEX		0x09
-#define NEG_OPAQUE_RECT_INDEX			0x0A
+#define NEG_OPAQUE_RECT_INDEX			0x0A /* Must be ignored */
 #define NEG_SAVEBITMAP_INDEX			0x0B
-#define NEG_WTEXTOUT_INDEX			0x0C
-#define NEG_MEMBLT_V2_INDEX			0x0D
-#define NEG_MEM3BLT_V2_INDEX			0x0E
+#define NEG_WTEXTOUT_INDEX			0x0C /* Must be ignored */
+#define NEG_MEMBLT_V2_INDEX			0x0D /* Must be ignored */
+#define NEG_MEM3BLT_V2_INDEX			0x0E /* Must be ignored */
 #define NEG_MULTIDSTBLT_INDEX			0x0F
 #define NEG_MULTIPATBLT_INDEX			0x10
 #define NEG_MULTISCRBLT_INDEX			0x11
@@ -186,15 +186,15 @@
 #define NEG_POLYGON_SC_INDEX			0x14
 #define NEG_POLYGON_CB_INDEX			0x15
 #define NEG_POLYLINE_INDEX			0x16
-#define NEG_UNUSED23_INDEX			0x17
+#define NEG_UNUSED23_INDEX			0x17 /* Must be ignored */
 #define NEG_FAST_GLYPH_INDEX			0x18
 #define NEG_ELLIPSE_SC_INDEX			0x19
 #define NEG_ELLIPSE_CB_INDEX			0x1A
 #define NEG_GLYPH_INDEX_INDEX			0x1B
-#define NEG_GLYPH_WEXTTEXTOUT_INDEX		0x1C
-#define NEG_GLYPH_WLONGTEXTOUT_INDEX		0x1D
-#define NEG_GLYPH_WLONGEXTTEXTOUT_INDEX		0x1E
-#define NEG_UNUSED31_INDEX			0x1F
+#define NEG_GLYPH_WEXTTEXTOUT_INDEX		0x1C /* Must be ignored */
+#define NEG_GLYPH_WLONGTEXTOUT_INDEX		0x1D /* Must be ignored */
+#define NEG_GLYPH_WLONGEXTTEXTOUT_INDEX		0x1E /* Must be ignored */
+#define NEG_UNUSED31_INDEX			0x1F /* Must be ignored */
 
 /* Glyph Support Level */
 #define GLYPH_SUPPORT_NONE			0x0000
@@ -479,6 +479,7 @@ typedef struct _RDPDR_PARALLEL RDPDR_PARALLEL;
 #define PROXY_TYPE_NONE		0
 #define PROXY_TYPE_HTTP		1
 #define PROXY_TYPE_SOCKS	2
+#define PROXY_TYPE_IGNORE	0xFFFF
 
 /* Settings */
 
@@ -509,6 +510,8 @@ typedef struct _RDPDR_PARALLEL RDPDR_PARALLEL;
 #define FreeRDP_PasswordHash                                       (  24)
 #define FreeRDP_WaitForOutputBufferFlush                           (  25)
 #define FreeRDP_MaxTimeInCheckLoop                                 (  26)
+#define FreeRDP_AcceptedCert                                       (  27)
+#define FreeRDP_AcceptedCertLength                                 (  28)
 #define FreeRDP_RdpVersion                                         ( 128)
 #define FreeRDP_DesktopWidth                                       ( 129)
 #define FreeRDP_DesktopHeight                                      ( 130)
@@ -648,8 +651,12 @@ typedef struct _RDPDR_PARALLEL RDPDR_PARALLEL;
 #define FreeRDP_TargetNetAddressCount                              (1228)
 #define FreeRDP_TargetNetAddresses                                 (1229)
 #define FreeRDP_TargetNetPorts                                     (1230)
+#define FreeRDP_RedirectionAcceptedCert                            (1231)
+#define FreeRDP_RedirectionAcceptedCertLength                      (1232)
+#define FreeRDP_RedirectionPreferType                              (1233)
 #define FreeRDP_Password51                                         (1280)
 #define FreeRDP_Password51Length                                   (1281)
+#define FreeRDP_SmartcardLogon                                     (1282)
 #define FreeRDP_KerberosKdc                                        (1344)
 #define FreeRDP_KerberosRealm                                      (1345)
 #define FreeRDP_IgnoreCertificate                                  (1408)
@@ -675,7 +682,6 @@ typedef struct _RDPDR_PARALLEL RDPDR_PARALLEL;
 #define FreeRDP_AsyncInput                                         (1544)
 #define FreeRDP_AsyncUpdate                                        (1545)
 #define FreeRDP_AsyncChannels                                      (1546)
-#define FreeRDP_AsyncTransport                                     (1547)
 #define FreeRDP_ToggleFullscreen                                   (1548)
 #define FreeRDP_WmClass                                            (1549)
 #define FreeRDP_EmbeddedWindow                                     (1550)
@@ -716,6 +722,8 @@ typedef struct _RDPDR_PARALLEL RDPDR_PARALLEL;
 #define FreeRDP_GatewayHttpTransport                               (1995)
 #define FreeRDP_GatewayUdpTransport                                (1996)
 #define FreeRDP_GatewayAccessToken                                 (1997)
+#define FreeRDP_GatewayAcceptedCert                                (1998)
+#define FreeRDP_GatewayAcceptedCertLength                          (1999)
 #define FreeRDP_ProxyType                                          (2015)
 #define FreeRDP_ProxyHostname                                      (2016)
 #define FreeRDP_ProxyPort                                          (2017)
@@ -933,7 +941,7 @@ struct rdp_settings
 	UINT64 padding0384[384 - 323]; /* 323 */
 
 	/* Client Monitor Data */
-	ALIGN64 int         MonitorCount;         /*    384 */
+	ALIGN64 UINT32      MonitorCount;         /*    384 */
 	ALIGN64 UINT32      MonitorDefArraySize;  /*    385 */
 	ALIGN64 rdpMonitor* MonitorDefArray;      /*    386 */
 	ALIGN64 BOOL        SpanMonitors;         /*    387 */
@@ -1082,16 +1090,18 @@ struct rdp_settings
 	ALIGN64 UINT32* TargetNetPorts;               /* 1230 */
 	ALIGN64 char*   RedirectionAcceptedCert;      /* 1231 */
 	ALIGN64 UINT32  RedirectionAcceptedCertLength;/* 1232 */
-	UINT64 padding1280[1280 - 1233]; /* 1233 */
+	ALIGN64 UINT32  RedirectionPreferType;        /* 1233 */
+	UINT64 padding1280[1280 - 1234]; /* 1234 */
 
 	/**
 	 * Security
 	 */
 
 	/* Credentials Cache */
-	ALIGN64 BYTE*  Password51;       /* 1280 */
-	ALIGN64 UINT32 Password51Length; /* 1281 */
-	UINT64 padding1344[1344 - 1282]; /* 1282 */
+	ALIGN64 BYTE*  Password51;          /* 1280 */
+	ALIGN64 UINT32 Password51Length;    /* 1281 */
+	ALIGN64 BOOL   SmartcardLogon;      /* 1282 */
+	UINT64  padding1344[1344 - 1283];   /* 1283 */
 
 	/* Kerberos Authentication */
 	ALIGN64 char* KerberosKdc;   /* 1344 */
@@ -1130,7 +1140,7 @@ struct rdp_settings
 	ALIGN64 BOOL   AsyncInput;              /* 1544 */
 	ALIGN64 BOOL   AsyncUpdate;             /* 1545 */
 	ALIGN64 BOOL   AsyncChannels;           /* 1546 */
-	ALIGN64 BOOL   AsyncTransport;          /* 1547 */
+	UINT64 padding1548[1548 - 1547];        /* 1547 */
 	ALIGN64 BOOL   ToggleFullscreen;        /* 1548 */
 	ALIGN64 char*  WmClass;                 /* 1549 */
 	ALIGN64 BOOL   EmbeddedWindow;          /* 1550 */
@@ -1150,7 +1160,7 @@ struct rdp_settings
 	ALIGN64 BOOL AuthenticationOnly;   /* 1603 */
 	ALIGN64 BOOL CredentialsFromStdin; /* 1604 */
 	ALIGN64 BOOL UnmapButtons;         /* 1605 */
-	UINT64 padding1664[1664 - 1606]; /* 1606 */
+	UINT64 padding1664[1664 - 1606];   /* 1606 */
 
 	/* Names */
 	ALIGN64 char* ComputerName; /* 1664 */
@@ -1259,7 +1269,8 @@ struct rdp_settings
 	ALIGN64 BYTE* OrderSupport;             /* 2432 */
 	ALIGN64 BOOL  BitmapCacheV3Enabled;     /* 2433 */
 	ALIGN64 BOOL  AltSecFrameMarkerSupport; /* 2434 */
-	UINT64 padding2497[2497 - 2435]; /* 2435 */
+	ALIGN64 BOOL  AllowUnanouncedOrdersFromServer; /* 2435 */
+	UINT64 padding2497[2497 - 2436]; /* 2436 */
 
 	/* Bitmap Cache Capabilities */
 	ALIGN64 BOOL                       BitmapCacheEnabled;        /* 2497 */
@@ -1491,6 +1502,7 @@ struct rdp_settings
 	ALIGN64 BYTE*
 	SettingsModified;  /* byte array marking fields that have been modified from their default value */
 	ALIGN64 char* ActionScript;
+	ALIGN64 BOOL   Floatbar;
 
 	#pragma region Myrtille
 

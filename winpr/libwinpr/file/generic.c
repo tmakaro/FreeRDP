@@ -933,7 +933,22 @@ HANDLE FindFirstFileA(LPCSTR lpFileName, LPWIN32_FIND_DATAA lpFindFileData)
 	}
 
 	if (FindNextFileA((HANDLE) pFileSearch, lpFindFileData))
+	{
+		if (isDir)
+		{
+			const char* name =  strrchr(lpFileName, '/');
+
+			if (!name)
+				name = lpFileName;
+			else
+				name++;
+
+			pFileSearch->lpPattern[0] = '*';
+			strcpy(lpFindFileData->cFileName, name);
+		}
+
 		return (HANDLE) pFileSearch;
+	}
 
 	FindClose(pFileSearch);
 	return INVALID_HANDLE_VALUE;
@@ -1008,6 +1023,7 @@ HANDLE FindFirstFileW(LPCWSTR lpFileName, LPWIN32_FIND_DATAW lpFindFileData)
 		if (!ConvertFindDataAToW(fd, lpFindFileData))
 		{
 			SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+			FindClose(h);
 			h = INVALID_HANDLE_VALUE;
 			goto out;
 		}

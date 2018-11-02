@@ -146,15 +146,26 @@ void xf_SendClientEvent(xfContext* xfc, Window window, Atom atom,
 	va_end(argp);
 }
 
+void xf_SetWindowMinimized(xfContext* xfc, xfWindow* window)
+{
+	XIconifyWindow(xfc->display, window->handle, xfc->screen_number);
+}
+
 void xf_SetWindowFullscreen(xfContext* xfc, xfWindow* window, BOOL fullscreen)
 {
-	int i;
+	UINT32 i;
 	rdpSettings* settings = xfc->context.settings;
 	int startX, startY;
 	UINT32 width = window->width;
 	UINT32 height = window->height;
+	/* xfc->decorations is set by caller depending on settings and whether it is fullscreen or not */
 	window->decorations = xfc->decorations;
+	/* show/hide decorations (e.g. title bar) as guided by xfc->decorations */
 	xf_SetWindowDecorations(xfc, window->handle, window->decorations);
+	DEBUG_X11(TAG, "X window decoration set to %d", (int)window->decorations);
+
+	if (xfc->floatbar)
+		xf_floatbar_toggle_visibility(xfc, fullscreen);
 
 	if (fullscreen)
 	{
@@ -194,7 +205,12 @@ void xf_SetWindowFullscreen(xfContext* xfc, xfWindow* window, BOOL fullscreen)
 		startY += xfc->context.settings->MonitorLocalShiftY;
 	}
 
-	if (xfc->_NET_WM_FULLSCREEN_MONITORS != None)
+	/*
+	  It is safe to proceed with simply toogling _NET_WM_STATE_FULLSCREEN window state on the following conditions:
+	       - The window manager supports multiple monitor full screen
+	       - The user requested to use a single monitor to render the remote desktop
+	 */
+	if (xfc->_NET_WM_FULLSCREEN_MONITORS != None || settings->MonitorCount == 1)
 	{
 		xf_ResizeDesktopWindow(xfc, window, width, height);
 
@@ -286,6 +302,7 @@ void xf_SetWindowFullscreen(xfContext* xfc, xfWindow* window, BOOL fullscreen)
 
 			width = xfc->vscreen.area.right - xfc->vscreen.area.left + 1;
 			height = xfc->vscreen.area.bottom - xfc->vscreen.area.top + 1;
+			DEBUG_X11("X window move and resize %dx%d@%dx%d", startX, startY, width, height);
 			xf_ResizeDesktopWindow(xfc, window, width, height);
 			XMoveWindow(xfc->display, window->handle, startX, startY);
 		}
@@ -569,6 +586,7 @@ xfWindow* xf_CreateDesktopWindow(xfContext* xfc, char* name, int width,
 		            settings->DesktopPosY);
 	}
 
+	window->floatbar = xf_floatbar_new(xfc, window->handle);
 	xf_SetWindowTitleText(xfc, window->handle, name);
 	return window;
 }
@@ -607,7 +625,6 @@ void xf_ResizeDesktopWindow(xfContext* xfc, xfWindow* window, int width,
 	}
 
 	XSetWMNormalHints(xfc->display, window->handle, size_hints);
-
 	XFree(size_hints);
 }
 
@@ -618,6 +635,9 @@ void xf_DestroyDesktopWindow(xfContext* xfc, xfWindow* window)
 
 	if (xfc->window == window)
 		xfc->window = NULL;
+
+	if (window->floatbar)
+		xf_floatbar_free(xfc, window, window->floatbar);
 
 	if (window->gc)
 		XFreeGC(xfc->display, window->gc);
@@ -644,25 +664,14 @@ void xf_SetWindowStyle(xfContext* xfc, xfAppWindow* appWindow, UINT32 style,
                        UINT32 ex_style)
 {
 	Atom window_type;
+	BOOL redirect = FALSE;
 
 	if ((ex_style & WS_EX_NOACTIVATE) || (ex_style & WS_EX_TOOLWINDOW))
 	{
-		/*
-		 * Tooltips and menu items should be unmanaged windows
-		 * (called "override redirect" in X windows parlance)
-		 * If they are managed, there are issues with window focus that
-		 * cause the windows to behave improperly.  For example, a mouse
-		 * press will dismiss a drop-down menu because the RDP server
-		 * sees that as a focus out event from the window owning the
-		 * dropdown.
-		 */
-		XSetWindowAttributes attrs;
-		attrs.override_redirect = True;
-		XChangeWindowAttributes(xfc->display, appWindow->handle, CWOverrideRedirect,
-		                        &attrs);
+		redirect = TRUE;
 		appWindow->is_transient = TRUE;
 		xf_SetWindowUnlisted(xfc, appWindow->handle);
-		window_type = xfc->_NET_WM_WINDOW_TYPE_POPUP;
+		window_type = xfc->_NET_WM_WINDOW_TYPE_DROPDOWN_MENU;
 	}
 	/*
 	 * TOPMOST window that is not a tool window is treated like a regular window (i.e. task manager).
@@ -682,6 +691,22 @@ void xf_SetWindowStyle(xfContext* xfc, xfAppWindow* appWindow, UINT32 style,
 	else
 	{
 		window_type = xfc->_NET_WM_WINDOW_TYPE_NORMAL;
+	}
+
+	{
+		/*
+		 * Tooltips and menu items should be unmanaged windows
+		 * (called "override redirect" in X windows parlance)
+		 * If they are managed, there are issues with window focus that
+		 * cause the windows to behave improperly.  For example, a mouse
+		 * press will dismiss a drop-down menu because the RDP server
+		 * sees that as a focus out event from the window owning the
+		 * dropdown.
+		 */
+		XSetWindowAttributes attrs;
+		attrs.override_redirect = redirect ? True : False;
+		XChangeWindowAttributes(xfc->display, appWindow->handle, CWOverrideRedirect,
+		                        &attrs);
 	}
 
 	XChangeProperty(xfc->display, appWindow->handle, xfc->_NET_WM_WINDOW_TYPE,

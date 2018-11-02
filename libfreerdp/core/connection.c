@@ -173,6 +173,23 @@
 
 static int rdp_client_connect_finalize(rdpRdp* rdp);
 
+static BOOL rdp_client_reset_codecs(rdpContext* context)
+{
+	rdpSettings* settings;
+
+	if (!context || !context->settings)
+		return FALSE;
+
+	settings = context->settings;
+	context->codecs = codecs_new(context);
+
+	if (!context->codecs)
+		return FALSE;
+
+	return freerdp_client_codecs_prepare(context->codecs, FREERDP_CODEC_ALL,
+	                                     settings->DesktopWidth, settings->DesktopHeight);
+}
+
 #pragma region Myrtille
 
 BOOL resolve_hostname_ip(rdpSettings* settings)
@@ -271,6 +288,9 @@ BOOL rdp_client_connect(rdpRdp* rdp)
 
 	/* make sure SSL is initialize for earlier enough for crypto, by taking advantage of winpr SSL FIPS flag for openssl initialization */
 	DWORD flags = WINPR_SSL_INIT_DEFAULT;
+
+	if (!rdp_client_reset_codecs(rdp->context))
+		return FALSE;
 
 	if (settings->FIPSMode)
 		flags |= WINPR_SSL_INIT_ENABLE_FIPS;
@@ -425,6 +445,7 @@ BOOL rdp_client_disconnect(rdpRdp* rdp)
 	if (freerdp_channels_disconnect(context->channels, context->instance) != CHANNEL_RC_OK)
 		return FALSE;
 
+	codecs_free(context->codecs);
 	return TRUE;
 }
 
@@ -474,6 +495,71 @@ static BOOL rdp_client_reconnect_channels(rdpRdp* rdp, BOOL redirect)
 	return status;
 }
 
+static BOOL rdp_client_redirect_resolvable(const char* host)
+{
+	struct addrinfo* result = freerdp_tcp_resolve_host(host, -1, 0);
+
+	if (!result)
+		return FALSE;
+
+	freeaddrinfo(result);
+	return TRUE;
+}
+
+static BOOL rdp_client_redirect_try_fqdn(rdpSettings* settings)
+{
+	if (settings->RedirectionFlags & LB_TARGET_FQDN)
+	{
+		if (rdp_client_redirect_resolvable(settings->RedirectionTargetFQDN))
+		{
+			free(settings->ServerHostname);
+			settings->ServerHostname = _strdup(settings->RedirectionTargetFQDN);
+
+			if (!settings->ServerHostname)
+				return FALSE;
+
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
+static BOOL rdp_client_redirect_try_ip(rdpSettings* settings)
+{
+	if (settings->RedirectionFlags & LB_TARGET_NET_ADDRESS)
+	{
+		free(settings->ServerHostname);
+		settings->ServerHostname = _strdup(settings->TargetNetAddress);
+
+		if (!settings->ServerHostname)
+			return FALSE;
+
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+static BOOL rdp_client_redirect_try_netbios(rdpSettings* settings)
+{
+	if (settings->RedirectionFlags & LB_TARGET_NETBIOS_NAME)
+	{
+		if (rdp_client_redirect_resolvable(settings->RedirectionTargetNetBiosName))
+		{
+			free(settings->ServerHostname);
+			settings->ServerHostname = _strdup(settings->RedirectionTargetNetBiosName);
+
+			if (!settings->ServerHostname)
+				return FALSE;
+
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
 BOOL rdp_client_redirect(rdpRdp* rdp)
 {
 	BOOL status;
@@ -501,30 +587,27 @@ BOOL rdp_client_redirect(rdpRdp* rdp)
 	}
 	else
 	{
-		if (settings->RedirectionFlags & LB_TARGET_NET_ADDRESS)
-		{
-			free(settings->ServerHostname);
-			settings->ServerHostname = _strdup(settings->TargetNetAddress);
+		BOOL haveRedirectAddress = FALSE;
+		UINT32 redirectionMask = settings->RedirectionPreferType;
 
-			if (!settings->ServerHostname)
-				return FALSE;
-		}
-		else if (settings->RedirectionFlags & LB_TARGET_FQDN)
+		do
 		{
-			free(settings->ServerHostname);
-			settings->ServerHostname = _strdup(settings->RedirectionTargetFQDN);
+			const BOOL tryFQDN = (redirectionMask & 0x01) == 0;
+			const BOOL tryNetAddress = (redirectionMask & 0x02) == 0;
+			const BOOL tryNetbios = (redirectionMask & 0x04) == 0;
 
-			if (!settings->ServerHostname)
-				return FALSE;
-		}
-		else if (settings->RedirectionFlags & LB_TARGET_NETBIOS_NAME)
-		{
-			free(settings->ServerHostname);
-			settings->ServerHostname = _strdup(settings->RedirectionTargetNetBiosName);
+			if (tryFQDN && !haveRedirectAddress)
+				haveRedirectAddress = rdp_client_redirect_try_fqdn(settings);
 
-			if (!settings->ServerHostname)
-				return FALSE;
+			if (tryNetAddress && !haveRedirectAddress)
+				haveRedirectAddress = rdp_client_redirect_try_ip(settings);
+
+			if (tryNetbios && !haveRedirectAddress)
+				haveRedirectAddress = rdp_client_redirect_try_netbios(settings);
+
+			redirectionMask >>= 3;
 		}
+		while (!haveRedirectAddress && (redirectionMask != 0));
 
 		#pragma region Myrtille
 

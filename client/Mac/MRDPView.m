@@ -217,8 +217,6 @@ DWORD mac_client_thread(void* param)
 		while (!freerdp_shall_disconnect(instance))
 		{
 			nCount = nCountBase;
-
-			if (!settings->AsyncTransport)
 			{
 				if (!(nCountTmp = freerdp_get_event_handles(context, &events[nCount],
 				                  16 - nCount)))
@@ -229,7 +227,6 @@ DWORD mac_client_thread(void* param)
 
 				nCount += nCountTmp;
 			}
-
 			status = WaitForMultipleObjects(nCount, events, FALSE, INFINITE);
 
 			if (status >= (WAIT_OBJECT_0 + nCount))
@@ -252,7 +249,6 @@ DWORD mac_client_thread(void* param)
 				}
 			}
 
-			if (!settings->AsyncTransport)
 			{
 				if (!freerdp_check_event_handles(context))
 				{
@@ -885,7 +881,6 @@ BOOL mac_pre_connect(freerdp* instance)
 		return -1;
 	}
 
-	settings->SoftwareGdi = TRUE;
 	settings->OsMajorType = OSMAJORTYPE_MACINTOSH;
 	settings->OsMinorType = OSMINORTYPE_MACINTOSH;
 	ZeroMemory(settings->OrderSupport, 32);
@@ -992,18 +987,34 @@ BOOL mac_authenticate(freerdp* instance, char** username, char** password,
 
 	if (ok)
 	{
+		size_t ulen, plen, dlen;
 		const char* submittedUsername = [dialog.username cStringUsingEncoding:
 		                                                 NSUTF8StringEncoding];
-		*username = malloc((strlen(submittedUsername) + 1) * sizeof(char));
-		strcpy(*username, submittedUsername);
+		ulen = (strlen(submittedUsername) + 1) * sizeof(char);
+		*username = malloc(ulen);
+
+		if (!(*username))
+			return FALSE;
+
+		sprintf_s(*username, ulen, "%s", submittedUsername);
 		const char* submittedPassword = [dialog.password cStringUsingEncoding:
 		                                                 NSUTF8StringEncoding];
-		*password = malloc((strlen(submittedPassword) + 1) * sizeof(char));
-		strcpy(*password, submittedPassword);
+		plen = (strlen(submittedPassword) + 1) * sizeof(char);
+		*password = malloc(plen);
+
+		if (!(*password))
+			return FALSE;
+
+		sprintf_s(*password, plen, "%s", submittedPassword);
 		const char* submittedDomain = [dialog.domain cStringUsingEncoding:
 		                                             NSUTF8StringEncoding];
-		*domain = malloc((strlen(submittedDomain) + 1) * sizeof(char));
-		strcpy(*domain, submittedDomain);
+		dlen = (strlen(submittedDomain) + 1) * sizeof(char);
+		*domain = malloc(dlen);
+
+		if (!(*domain))
+			return FALSE;
+
+		sprintf_s(*domain, dlen, "%s", submittedDomain);
 	}
 
 	return ok;

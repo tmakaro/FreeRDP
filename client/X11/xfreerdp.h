@@ -160,6 +160,7 @@ struct xf_context
 	BOOL use_xinput;
 	BOOL mouse_active;
 	BOOL fullscreen_toggle;
+	BOOL floatbar;
 	BOOL controlToggle;
 	UINT32 KeyboardLayout;
 	BOOL KeyboardState[256];
@@ -203,6 +204,7 @@ struct xf_context
 	Atom _NET_WM_WINDOW_TYPE_DIALOG;
 	Atom _NET_WM_WINDOW_TYPE_UTILITY;
 	Atom _NET_WM_WINDOW_TYPE_POPUP;
+	Atom _NET_WM_WINDOW_TYPE_POPUP_MENU;
 	Atom _NET_WM_WINDOW_TYPE_DROPDOWN_MENU;
 
 	Atom _NET_WM_MOVERESIZE;
@@ -220,7 +222,6 @@ struct xf_context
 	RdpeiClientContext* rdpei;
 	EncomspClientContext* encomsp;
 	xfDispContext* xfDisp;
-	DispClientContext* disp;
 
 	RailClientContext* rail;
 	wHashTable* railWindows;
@@ -278,6 +279,7 @@ enum XF_EXIT_CODE
 	XF_EXIT_PROTOCOL = 130,
 	XF_EXIT_CONN_FAILED = 131,
 	XF_EXIT_AUTH_FAILURE = 132,
+	XF_EXIT_NEGO_FAILURE = 133,
 
 	XF_EXIT_UNKNOWN = 255,
 };

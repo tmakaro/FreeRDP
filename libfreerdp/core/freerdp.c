@@ -34,6 +34,7 @@
 
 #include <assert.h>
 
+#include <winpr/crt.h>
 #include <winpr/string.h>
 #include <winpr/stream.h>
 #include <winpr/wtsapi.h>
@@ -164,7 +165,6 @@ BOOL freerdp_connect(freerdp* instance)
 	ResetEvent(instance->context->abortEvent);
 	rdp = instance->context->rdp;
 	settings = instance->settings;
-	instance->context->codecs = codecs_new(instance->context);
 	IFCALLRET(instance->PreConnect, status, instance);
 	instance->ConnectionCallbackState = CLIENT_STATE_PRECONNECT_PASSED;
 
@@ -524,7 +524,6 @@ BOOL freerdp_disconnect(freerdp* instance)
 		instance->update->pcap_rfx = NULL;
 	}
 
-	codecs_free(instance->context->codecs);
 	freerdp_channels_close(instance->context->channels, instance);
 	return rc;
 }
@@ -657,6 +656,7 @@ BOOL freerdp_context_new(freerdp* instance)
 	context->instance = instance;
 	context->ServerMode = FALSE;
 	context->settings = instance->settings;
+	context->disconnectUltimatum = 0;
 	context->pubSub = PubSub_New(TRUE);
 
 	if (!context->pubSub)
@@ -757,6 +757,11 @@ void freerdp_context_free(freerdp* instance)
 	freerdp_channels_free(instance->context->channels);
 	free(instance->context);
 	instance->context = NULL;
+}
+
+int freerdp_get_disconnect_ultimatum(rdpContext* context)
+{
+	return context->disconnectUltimatum;
 }
 
 UINT32 freerdp_error_info(freerdp* instance)

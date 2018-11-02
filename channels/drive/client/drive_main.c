@@ -527,6 +527,7 @@ static UINT drive_process_irp_query_volume_information(DRIVE_DEVICE* drive,
 
 			if (!Stream_EnsureRemainingCapacity(output, 12 + length))
 			{
+				free(outStr);
 				WLog_ERR(TAG, "Stream_EnsureRemainingCapacity failed!");
 				return CHANNEL_RC_NO_MEMORY;
 			}
@@ -864,6 +865,14 @@ static UINT drive_free(DEVICE* device)
 }
 
 /**
+ * Helper function used for freeing list dictionary value object
+ */
+static void drive_file_objfree(void* obj)
+{
+	drive_file_free((DRIVE_FILE*) obj);
+}
+
+/**
  * Function description
  *
  * @return 0 on success, otherwise a Win32 error code
@@ -924,7 +933,7 @@ static UINT drive_register_drive_path(PDEVICE_SERVICE_ENTRY_POINTS pEntryPoints,
 			goto out_error;
 		}
 
-		ListDictionary_ValueObject(drive->files)->fnObjectFree = (OBJECT_FREE_FN) drive_file_free;
+		ListDictionary_ValueObject(drive->files)->fnObjectFree = drive_file_objfree;
 		drive->IrpQueue = MessageQueue_New(NULL);
 
 		if (!drive->IrpQueue)

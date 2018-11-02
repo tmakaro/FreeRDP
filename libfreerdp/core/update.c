@@ -130,11 +130,14 @@ static BOOL update_read_bitmap_data(rdpUpdate* update, wStream* s,
 	if (bitmapData->bitmapLength > 0)
 	{
 		bitmapData->bitmapDataStream = malloc(bitmapData->bitmapLength);
+
 		if (!bitmapData->bitmapDataStream)
 			return FALSE;
+
 		memcpy(bitmapData->bitmapDataStream, Stream_Pointer(s), bitmapData->bitmapLength);
 		Stream_Seek(s, bitmapData->bitmapLength);
 	}
+
 	return TRUE;
 }
 
@@ -633,9 +636,9 @@ BOOL update_recv(rdpUpdate* update, wStream* s)
 	}
 
 	Stream_Read_UINT16(s, updateType); /* updateType (2 bytes) */
+	WLog_Print(update->log, WLOG_TRACE, "%s Update Data PDU", UPDATE_TYPE_STRINGS[updateType]);
 
-	//WLog_DBG(TAG, "%s Update Data PDU", UPDATE_TYPE_STRINGS[updateType]);
-	if (!IFCALLRESULT(FALSE, update->BeginPaint, context))
+	if (!IFCALLRESULT(TRUE, update->BeginPaint, context))
 		return FALSE;
 
 	switch (updateType)
@@ -992,21 +995,17 @@ static void update_write_refresh_rect(wStream* s, BYTE count,
 static BOOL update_send_refresh_rect(rdpContext* context, BYTE count,
                                      const RECTANGLE_16* areas)
 {
-	wStream* s;
 	rdpRdp* rdp = context->rdp;
 
 	if (rdp->settings->RefreshRect)
 	{
-		BOOL ret;
-		s = rdp_data_pdu_init(rdp);
+		wStream* s = rdp_data_pdu_init(rdp);
 
 		if (!s)
 			return FALSE;
 
 		update_write_refresh_rect(s, count, areas);
-		ret = rdp_send_data_pdu(rdp, s, DATA_PDU_TYPE_REFRESH_RECT, rdp->mcs->userId);
-		Stream_Release(s);
-		return ret;
+		return rdp_send_data_pdu(rdp, s, DATA_PDU_TYPE_REFRESH_RECT, rdp->mcs->userId);
 	}
 
 	return TRUE;
@@ -1031,22 +1030,18 @@ static void update_write_suppress_output(wStream* s, BYTE allow,
 static BOOL update_send_suppress_output(rdpContext* context, BYTE allow,
                                         const RECTANGLE_16* area)
 {
-	wStream* s;
 	rdpRdp* rdp = context->rdp;
 
 	if (rdp->settings->SuppressOutput)
 	{
-		BOOL ret;
-		s = rdp_data_pdu_init(rdp);
+		wStream* s = rdp_data_pdu_init(rdp);
 
 		if (!s)
 			return FALSE;
 
 		update_write_suppress_output(s, allow, area);
-		ret = rdp_send_data_pdu(rdp, s, DATA_PDU_TYPE_SUPPRESS_OUTPUT,
-		                        rdp->mcs->userId);
-		Stream_Release(s);
-		return ret;
+		return rdp_send_data_pdu(rdp, s, DATA_PDU_TYPE_SUPPRESS_OUTPUT,
+		                         rdp->mcs->userId);
 	}
 
 	return TRUE;
@@ -1166,22 +1161,18 @@ out_fail:
 
 static BOOL update_send_frame_acknowledge(rdpContext* context, UINT32 frameId)
 {
-	wStream* s;
 	rdpRdp* rdp = context->rdp;
 
 	if (rdp->settings->ReceivedCapabilities[CAPSET_TYPE_FRAME_ACKNOWLEDGE])
 	{
-		BOOL ret;
-		s = rdp_data_pdu_init(rdp);
+		wStream* s = rdp_data_pdu_init(rdp);
 
 		if (!s)
 			return FALSE;
 
 		Stream_Write_UINT32(s, frameId);
-		ret = rdp_send_data_pdu(rdp, s, DATA_PDU_TYPE_FRAME_ACKNOWLEDGE,
-		                        rdp->mcs->userId);
-		Stream_Release(s);
-		return ret;
+		return rdp_send_data_pdu(rdp, s, DATA_PDU_TYPE_FRAME_ACKNOWLEDGE,
+		                         rdp->mcs->userId);
 	}
 
 	return TRUE;
@@ -1241,7 +1232,6 @@ static BOOL update_send_play_sound(rdpContext* context,
 {
 	wStream* s;
 	rdpRdp* rdp = context->rdp;
-	BOOL ret;
 
 	if (!rdp->settings->ReceivedCapabilities[CAPSET_TYPE_SOUND])
 	{
@@ -1255,9 +1245,7 @@ static BOOL update_send_play_sound(rdpContext* context,
 
 	Stream_Write_UINT32(s, play_sound->duration);
 	Stream_Write_UINT32(s, play_sound->frequency);
-	ret = rdp_send_data_pdu(rdp, s, DATA_PDU_TYPE_PLAY_SOUND, rdp->mcs->userId);
-	Stream_Release(s);
-	return ret;
+	return rdp_send_data_pdu(rdp, s, DATA_PDU_TYPE_PLAY_SOUND, rdp->mcs->userId);
 }
 /**
  * Primary Drawing Orders
@@ -2062,7 +2050,6 @@ static BOOL update_send_set_keyboard_indicators(rdpContext* context,
 {
 	wStream* s;
 	rdpRdp* rdp = context->rdp;
-	BOOL ret;
 	s = rdp_data_pdu_init(rdp);
 
 	if (!s)
@@ -2071,10 +2058,8 @@ static BOOL update_send_set_keyboard_indicators(rdpContext* context,
 	Stream_Write_UINT16(s,
 	                    0); /* unitId should be 0 according to MS-RDPBCGR 2.2.8.2.1.1 */
 	Stream_Write_UINT16(s, led_flags); /* ledFlags (2 bytes) */
-	ret = rdp_send_data_pdu(rdp, s, DATA_PDU_TYPE_SET_KEYBOARD_INDICATORS,
-	                        rdp->mcs->userId);
-	Stream_Release(s);
-	return ret;
+	return rdp_send_data_pdu(rdp, s, DATA_PDU_TYPE_SET_KEYBOARD_INDICATORS,
+	                         rdp->mcs->userId);
 }
 
 static BOOL update_send_set_keyboard_ime_status(rdpContext* context,
@@ -2082,7 +2067,6 @@ static BOOL update_send_set_keyboard_ime_status(rdpContext* context,
 {
 	wStream* s;
 	rdpRdp* rdp = context->rdp;
-	BOOL ret;
 	s = rdp_data_pdu_init(rdp);
 
 	if (!s)
@@ -2092,10 +2076,8 @@ static BOOL update_send_set_keyboard_ime_status(rdpContext* context,
 	Stream_Write_UINT16(s, imeId);
 	Stream_Write_UINT32(s, imeState);
 	Stream_Write_UINT32(s, imeConvMode);
-	ret = rdp_send_data_pdu(rdp, s, DATA_PDU_TYPE_SET_KEYBOARD_IME_STATUS,
-	                        rdp->mcs->userId);
-	Stream_Release(s);
-	return ret;
+	return rdp_send_data_pdu(rdp, s, DATA_PDU_TYPE_SET_KEYBOARD_IME_STATUS,
+	                         rdp->mcs->userId);
 }
 
 void update_register_server_callbacks(rdpUpdate* update)

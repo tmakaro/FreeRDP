@@ -265,15 +265,24 @@ static BOOL fastpath_recv_orders(rdpFastPath* fastpath, wStream* s)
 	UINT16 numberOrders;
 
 	if (!fastpath || !fastpath->rdp || !s)
+	{
+		WLog_ERR(TAG, "Invalid arguments");
 		return FALSE;
+	}
 
 	update = fastpath->rdp->update;
 
 	if (!update)
+	{
+		WLog_ERR(TAG, "Invalid configuration");
 		return FALSE;
+	}
 
 	if (Stream_GetRemainingLength(s) < 2)
+	{
+		WLog_ERR(TAG, "Stream short");
 		return FALSE;
+	}
 
 	Stream_Read_UINT16(s, numberOrders); /* numberOrders (2 bytes) */
 
@@ -565,10 +574,11 @@ static int fastpath_recv_update_data(rdpFastPath* fastpath, wStream* s)
 	else
 	{
 		const size_t totalSize = Stream_GetPosition(fastpath->updateData);
+
 		if (totalSize > transport->settings->MultifragMaxRequestSize)
 		{
 			WLog_ERR(TAG, "Total size (%"PRIuz") exceeds MultifragMaxRequestSize (%"PRIu32")",
-					 totalSize, transport->settings->MultifragMaxRequestSize);
+			         totalSize, transport->settings->MultifragMaxRequestSize);
 			goto out_fail;
 		}
 
@@ -581,8 +591,6 @@ static int fastpath_recv_update_data(rdpFastPath* fastpath, wStream* s)
 			}
 
 			fastpath->fragmentation = FASTPATH_FRAGMENT_FIRST;
-
-			
 		}
 		else if (fragmentation == FASTPATH_FRAGMENT_NEXT)
 		{
@@ -605,7 +613,6 @@ static int fastpath_recv_update_data(rdpFastPath* fastpath, wStream* s)
 			}
 
 			fastpath->fragmentation = -1;
-
 			Stream_SealLength(fastpath->updateData);
 			Stream_SetPosition(fastpath->updateData, 0);
 			status = fastpath_recv_update(fastpath, updateCode, fastpath->updateData);
@@ -621,7 +628,6 @@ static int fastpath_recv_update_data(rdpFastPath* fastpath, wStream* s)
 
 	return status;
 out_fail:
-
 	return -1;
 }
 
@@ -634,7 +640,7 @@ int fastpath_recv_updates(rdpFastPath* fastpath, wStream* s)
 
 	update = fastpath->rdp->update;
 
-	if (!IFCALLRESULT(FALSE, update->BeginPaint, update->context))
+	if (!IFCALLRESULT(TRUE, update->BeginPaint, update->context))
 		return -2;
 
 	while (Stream_GetRemainingLength(s) >= 3)
@@ -912,12 +918,16 @@ wStream* fastpath_input_pdu_init(rdpFastPath* fastpath, BYTE eventFlags, BYTE ev
 
 BOOL fastpath_send_multiple_input_pdu(rdpFastPath* fastpath, wStream* s, int iNumEvents)
 {
+	BOOL rc = FALSE;
 	rdpRdp* rdp;
 	UINT16 length;
 	BYTE eventHeader;
 
-	if (!fastpath || !fastpath->rdp || !s)
+	if (!s)
 		return FALSE;
+
+	if (!fastpath || !fastpath->rdp)
+		goto fail;
 
 	/*
 	 *  A maximum of 15 events are allowed per request
@@ -925,7 +935,7 @@ BOOL fastpath_send_multiple_input_pdu(rdpFastPath* fastpath, wStream* s, int iNu
 	 *  see MS-RDPBCGR 2.2.8.1.2 for details
 	 */
 	if (iNumEvents > 15)
-		return FALSE;
+		goto fail;
 
 	rdp = fastpath->rdp;
 	length = Stream_GetPosition(s);
@@ -933,7 +943,7 @@ BOOL fastpath_send_multiple_input_pdu(rdpFastPath* fastpath, wStream* s, int iNu
 	if (length >= (2 << 14))
 	{
 		WLog_ERR(TAG, "Maximum FastPath PDU length is 32767");
-		return FALSE;
+		goto fail;
 	}
 
 	eventHeader = FASTPATH_INPUT_ACTION_FASTPATH;
@@ -968,13 +978,13 @@ BOOL fastpath_send_multiple_input_pdu(rdpFastPath* fastpath, wStream* s, int iNu
 			Stream_Write_UINT8(s, pad); /* padding */
 
 			if (!security_hmac_signature(fpInputEvents, fpInputEvents_length, Stream_Pointer(s), rdp))
-				return FALSE;
+				goto fail;
 
 			if (pad)
 				memset(fpInputEvents + fpInputEvents_length, 0, pad);
 
 			if (!security_fips_encrypt(fpInputEvents, fpInputEvents_length + pad, rdp))
-				return FALSE;
+				goto fail;
 
 			length += pad;
 		}
@@ -989,7 +999,7 @@ BOOL fastpath_send_multiple_input_pdu(rdpFastPath* fastpath, wStream* s, int iNu
 				status = security_mac_signature(rdp, fpInputEvents, fpInputEvents_length, Stream_Pointer(s));
 
 			if (!status || !security_encrypt(fpInputEvents, fpInputEvents_length, rdp))
-				return FALSE;
+				goto fail;
 		}
 	}
 
@@ -1006,9 +1016,12 @@ BOOL fastpath_send_multiple_input_pdu(rdpFastPath* fastpath, wStream* s, int iNu
 	Stream_SealLength(s);
 
 	if (transport_write(fastpath->rdp->transport, s) < 0)
-		return FALSE;
+		goto fail;
 
-	return TRUE;
+	rc = TRUE;
+fail:
+	Stream_Release(s);
+	return rc;
 }
 
 BOOL fastpath_send_input_pdu(rdpFastPath* fastpath, wStream* s)

@@ -43,7 +43,7 @@ static void pointer_free(rdpContext* context, rdpPointer* pointer)
 {
 	if (pointer)
 	{
-		pointer->Free(context, pointer);
+		IFCALL(pointer->Free, context, pointer);
 
 		if (pointer->xorMaskData)
 		{
@@ -71,7 +71,7 @@ static BOOL update_pointer_position(rdpContext* context,
 		return FALSE;
 
 	pointer = context->graphics->Pointer_Prototype;
-	return pointer->SetPosition(context, pointer_position->xPos,
+	return IFCALLRESULT(TRUE, pointer->SetPosition, context, pointer_position->xPos,
 	                            pointer_position->yPos);
 }
 
@@ -89,17 +89,14 @@ static BOOL update_pointer_system(rdpContext* context,
 	switch (pointer_system->type)
 	{
 		case SYSPTR_NULL:
-			IFCALL(pointer->SetNull, context);
-			break;
+			return IFCALLRESULT(TRUE, pointer->SetNull, context);
 
 		case SYSPTR_DEFAULT:
-			IFCALL(pointer->SetDefault, context);
-			break;
+			return IFCALLRESULT(TRUE, pointer->SetDefault, context);
 
 		default:
 			WLog_ERR(TAG,  "Unknown system pointer type (0x%08"PRIX32")", pointer_system->type);
 	}
-
 	return TRUE;
 }
 
@@ -120,7 +117,7 @@ static BOOL update_pointer_color(rdpContext* context,
 		pointer->lengthAndMask = pointer_color->lengthAndMask;
 		pointer->lengthXorMask = pointer_color->lengthXorMask;
 
-		if (pointer->lengthAndMask && pointer_color->xorMaskData)
+		if (pointer->lengthAndMask && pointer_color->andMaskData)
 		{
 			pointer->andMaskData = (BYTE*) malloc(pointer->lengthAndMask);
 
@@ -142,13 +139,13 @@ static BOOL update_pointer_color(rdpContext* context,
 			           pointer->lengthXorMask);
 		}
 
-		if (!pointer->New(context, pointer))
+		if (!IFCALLRESULT(TRUE, pointer->New, context, pointer))
 			goto out_fail;
 
 		if (!pointer_cache_put(cache->pointer, pointer_color->cacheIndex, pointer))
 			goto out_fail;
 
-		return pointer->Set(context, pointer);
+		return IFCALLRESULT(TRUE, pointer->Set, context, pointer);
 	}
 
 	return FALSE;
@@ -202,14 +199,14 @@ static BOOL update_pointer_new(rdpContext* context,
 		           pointer->lengthXorMask);
 	}
 
-	if (!pointer->New(context, pointer))
+	if (!IFCALLRESULT(TRUE, pointer->New, context, pointer))
 		goto out_fail;
 
 	if (!pointer_cache_put(cache->pointer, pointer_new->colorPtrAttr.cacheIndex,
 	                       pointer))
 		goto out_fail;
 
-	return pointer->Set(context, pointer);
+	return IFCALLRESULT(TRUE, pointer->Set, context, pointer);
 out_fail:
 	pointer_free(context, pointer);
 	return FALSE;
@@ -223,10 +220,7 @@ static BOOL update_pointer_cached(rdpContext* context,
 	pointer = pointer_cache_get(cache->pointer, pointer_cached->cacheIndex);
 
 	if (pointer != NULL)
-	{
-		pointer->Set(context, pointer);
-		return TRUE;
-	}
+		return IFCALLRESULT(TRUE, pointer->Set, context, pointer);
 
 	return FALSE;
 }
