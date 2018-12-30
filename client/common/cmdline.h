@@ -189,7 +189,7 @@ static COMMAND_LINE_ARGUMENT_A args[] =
 	
 	#pragma region Myrtille
 
-	{ "myrtille-sid", COMMAND_LINE_VALUE_OPTIONAL, "<myrtille>", 0, NULL, -1, NULL, "Remote session id. 0 to disable (runs freerdp standalone, without the myrtille code)" },
+	{ "myrtille-sid", COMMAND_LINE_VALUE_OPTIONAL, "<myrtille>", NULL, NULL, -1, NULL, "Remote session id. 0 to disable (runs freerdp standalone, without the myrtille code)" },
 	{ "myrtille-window", COMMAND_LINE_VALUE_BOOL, "<myrtille>", false, NULL, -1, NULL, "Display the freerdp window. to disable if myrtille is running as a service (non user interactive mode)" },
 	{ "myrtille-log", COMMAND_LINE_VALUE_BOOL, "<myrtille>", false, NULL, -1, NULL, "Write console output to a log file (stamped with the freerdp process ID)" },
 

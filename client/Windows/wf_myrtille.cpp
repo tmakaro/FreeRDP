@@ -178,7 +178,7 @@ typedef struct wf_myrtille wfMyrtille;
 
 void wf_myrtille_start(wfContext* wfc)
 {
-	if (wfc->context.settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == NULL)
 		return;
 
 	wfc->myrtille = (wfMyrtille*)calloc(1, sizeof(wfMyrtille));
@@ -302,7 +302,7 @@ void wf_myrtille_start(wfContext* wfc)
 
 void wf_myrtille_stop(wfContext* wfc)
 {
-	if (wfc->context.settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == NULL)
 		return;
 
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
@@ -311,7 +311,7 @@ void wf_myrtille_stop(wfContext* wfc)
 
 HANDLE wf_myrtille_connect(wfContext* wfc)
 {
-	if (wfc->context.settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == NULL)
 		return NULL;
 
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
@@ -320,11 +320,11 @@ HANDLE wf_myrtille_connect(wfContext* wfc)
 	DWORD result = connectRemoteSessionPipes(wfc);
 	if (result != 0)
 	{
-		WLog_ERR(TAG, "wf_myrtille_connect: failed to connect session %i with error %d", wfc->context.settings->MyrtilleSessionId, result);
+		WLog_ERR(TAG, "wf_myrtille_connect: failed to connect session %s with error %d", wfc->context.settings->MyrtilleSessionId, result);
 		return NULL;
 	}
 
-	WLog_INFO(TAG, "wf_myrtille_connect: connected session %i", wfc->context.settings->MyrtilleSessionId);
+	WLog_INFO(TAG, "wf_myrtille_connect: connected session %s", wfc->context.settings->MyrtilleSessionId);
 
 	// process inputs
 	HANDLE thread;
@@ -339,7 +339,7 @@ HANDLE wf_myrtille_connect(wfContext* wfc)
 
 void wf_myrtille_send_screen(wfContext* wfc)
 {
-	if (wfc->context.settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == NULL)
 		return;
 
 	if (!wfc->primary || !wfc->primary->hdc)
@@ -393,7 +393,7 @@ void wf_myrtille_send_screen(wfContext* wfc)
 
 void wf_myrtille_send_region(wfContext* wfc, RECT region)
 {
-	if (wfc->context.settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == NULL)
 		return;
 
 	if (!wfc->primary || !wfc->primary->hdc)
@@ -506,7 +506,7 @@ void wf_myrtille_send_region(wfContext* wfc, RECT region)
 
 void wf_myrtille_send_cursor(wfContext* wfc)
 {
-	if (wfc->context.settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == NULL)
 		return;
 
 	if (!wfc->primary || !wfc->primary->hdc)
@@ -660,7 +660,7 @@ void wf_myrtille_send_cursor(wfContext* wfc)
 
 void wf_myrtille_reset_clipboard(wfContext* wfc)
 {
-	if (wfc->context.settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == NULL)
 		return;
 
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
@@ -671,7 +671,7 @@ void wf_myrtille_reset_clipboard(wfContext* wfc)
 
 void wf_myrtille_send_clipboard(wfContext* wfc, BYTE* data, UINT32 length)
 {
-	if (wfc->context.settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == NULL)
 		return;
 
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;
@@ -692,7 +692,7 @@ void wf_myrtille_send_clipboard(wfContext* wfc, BYTE* data, UINT32 length)
 
 void wf_myrtille_send_printjob(wfContext* wfc, char* printJobName)
 {
-	if (wfc->context.settings->MyrtilleSessionId == 0)
+	if (wfc->context.settings->MyrtilleSessionId == NULL)
 		return;
 
 	wfMyrtille* myrtille = (wfMyrtille*)wfc->myrtille;

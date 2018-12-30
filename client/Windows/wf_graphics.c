@@ -312,7 +312,7 @@ static BOOL wf_Pointer_Set(rdpContext* context, const rdpPointer* pointer)
 	{
 		#pragma region Myrtille
 
-		if (wfc->context.settings->MyrtilleSessionId == 0 || wfc->context.settings->MyrtilleShowWindow)
+		if (wfc->context.settings->MyrtilleSessionId == NULL || wfc->context.settings->MyrtilleShowWindow)
 		{
 
 		#pragma endregion

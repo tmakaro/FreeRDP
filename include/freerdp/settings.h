@@ -1507,7 +1507,7 @@ struct rdp_settings
 	#pragma region Myrtille
 
 	// remote session id
-	int MyrtilleSessionId;
+	char* MyrtilleSessionId;
 
 	// process window
 	bool MyrtilleShowWindow;

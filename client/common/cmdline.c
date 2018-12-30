@@ -2755,7 +2755,8 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 
 		CommandLineSwitchCase(arg, "myrtille-sid")
 		{
-			settings->MyrtilleSessionId = atoi(arg->Value);
+			if (!copy_value(arg->Value, &settings->MyrtilleSessionId))
+				return COMMAND_LINE_ERROR_MEMORY;
 		}
 		CommandLineSwitchCase(arg, "myrtille-window")
 		{
