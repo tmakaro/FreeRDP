@@ -119,7 +119,7 @@ static void printer_win_close_printjob(rdpPrintJob* printjob)
 	}
 
 	// if using myrtille with its pdf printer, notify the gateway that a new pdf is available
-	if (printjob->printer->rdpcontext->settings->MyrtilleSessionId != 0 && strcmp(printjob->printer->name, "Myrtille PDF") == 0)
+	if (printjob->printer->rdpcontext->settings->MyrtilleSessionId != NULL && strcmp(printjob->printer->name, "Myrtille PDF") == 0)
 	{
 		RDP_CLIENT_ENTRY_POINTS* pEntryPoints = printjob->printer->rdpcontext->instance->pClientEntryPoints;
 		
@@ -156,7 +156,7 @@ static rdpPrintJob* printer_win_create_printjob(rdpPrinter* printer, UINT32 id)
 
 	// if using myrtille with its pdf printer, add a unique id to the print job name
 	// the print job handle could be used as identifier but it's only an auto-incremented value (not safe)
-	if (printer->rdpcontext->settings->MyrtilleSessionId != 0 && strcmp(printer->name, "Myrtille PDF") == 0)
+	if (printer->rdpcontext->settings->MyrtilleSessionId != NULL && strcmp(printer->name, "Myrtille PDF") == 0)
 	{
 		char printJobName[30];
 		strcpy(printJobName, "FREERDPjob");

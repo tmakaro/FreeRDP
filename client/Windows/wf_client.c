@@ -508,7 +508,7 @@ static BOOL wf_authenticate_raw(freerdp* instance, const char* title,
 	#pragma region Myrtille
 
 	// disable the credentials popup when using myrtille in windowless mode
-	if (instance->settings->MyrtilleSessionId != 0 && !instance->settings->MyrtilleShowWindow)
+	if (instance->settings->MyrtilleSessionId != NULL && !instance->settings->MyrtilleShowWindow)
 		return FALSE;
 
 	#pragma endregion
@@ -714,7 +714,7 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 		}
 	}
 
-	if (context->settings->MyrtilleSessionId != 0)
+	if (context->settings->MyrtilleSessionId != NULL)
 	{
 		wf_myrtille_send_screen(wfc);
 	}
@@ -850,7 +850,7 @@ disconnect:
 
 	#pragma region Myrtille
 
-	if (context->settings->MyrtilleSessionId != 0)
+	if (context->settings->MyrtilleSessionId != NULL)
 	{
 		error = freerdp_get_last_error(instance->context);
 		fclose(stdout);
@@ -1120,7 +1120,7 @@ static int wfreerdp_client_start(rdpContext* context)
 	
 	#pragma region Myrtille
 
-	if (context->settings->MyrtilleSessionId != 0)
+	if (context->settings->MyrtilleSessionId != NULL)
 	{
 		wf_myrtille_start(wfc);
 	}
@@ -1218,7 +1218,7 @@ static int wfreerdp_client_stop(rdpContext* context)
 
 	}
 
-	if (context->settings->MyrtilleSessionId != 0)
+	if (context->settings->MyrtilleSessionId != NULL)
 	{
 		wf_myrtille_stop(wfc);
 	}

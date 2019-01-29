@@ -2332,7 +2332,7 @@ static UINT wf_cliprdr_server_format_data_response(CliprdrClientContext*
 	#pragma region Myrtille
 
 	wfContext* wfc = (wfContext*)context->rdpcontext;
-	if (context->rdpcontext->settings->MyrtilleSessionId != 0)
+	if (context->rdpcontext->settings->MyrtilleSessionId != NULL)
 	{
 		// remote clipboard content was requested; send the response
 		wf_myrtille_send_clipboard(wfc, data, formatDataResponse->dataLen);
