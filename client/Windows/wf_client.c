@@ -257,8 +257,17 @@ static BOOL wf_pre_connect(freerdp* instance)
 	settings->OrderSupport[NEG_GLYPH_INDEX_INDEX] = TRUE;
 	settings->OrderSupport[NEG_FAST_INDEX_INDEX] = TRUE;
 	settings->OrderSupport[NEG_FAST_GLYPH_INDEX] = TRUE;
-	settings->OrderSupport[NEG_POLYGON_SC_INDEX] = TRUE;
-	settings->OrderSupport[NEG_POLYGON_CB_INDEX] = TRUE;
+	
+	#pragma region Myrtille
+
+	// gdi_polygon_sc: not implemented with /gdi:sw on Windows Server 2008 R2
+	// disabling it, along with gdi_polygon_cb, fixes some unexpected disconnect issues
+	// https://github.com/FreeRDP/FreeRDP/issues/3595
+	settings->OrderSupport[NEG_POLYGON_SC_INDEX] = FALSE;
+	settings->OrderSupport[NEG_POLYGON_CB_INDEX] = FALSE;
+
+	#pragma endregion
+
 	settings->OrderSupport[NEG_ELLIPSE_SC_INDEX] = FALSE;
 	settings->OrderSupport[NEG_ELLIPSE_CB_INDEX] = FALSE;
 	wfc->fullscreen = settings->Fullscreen;
