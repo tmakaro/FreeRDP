@@ -919,6 +919,9 @@ BOOL freerdp_get_param_bool(rdpSettings* settings, int id)
 		case FreeRDP_IgnoreCertificate:
 			return settings->IgnoreCertificate;
 
+		case FreeRDP_AutoDenyCertificate:
+			return settings->AutoDenyCertificate;
+
 		case FreeRDP_AutoAcceptCertificate:
 			return settings->AutoAcceptCertificate;
 
@@ -1378,6 +1381,10 @@ int freerdp_set_param_bool(rdpSettings* settings, int id, BOOL param)
 
 		case FreeRDP_IgnoreCertificate:
 			settings->IgnoreCertificate = param;
+			break;
+
+		case FreeRDP_AutoDenyCertificate:
+			settings->AutoDenyCertificate = param;
 			break;
 
 		case FreeRDP_AutoAcceptCertificate:
@@ -1999,6 +2006,9 @@ UINT32 freerdp_get_param_uint32(rdpSettings* settings, int id)
 		case FreeRDP_SmartSizingHeight:
 			return settings->SmartSizingHeight;
 
+		case FreeRDP_TlsSecLevel:
+			return settings->TlsSecLevel;
+
 		default:
 			WLog_ERR(TAG,  "freerdp_get_param_uint32: unknown id: %d", id);
 			return 0;
@@ -2340,6 +2350,9 @@ int freerdp_set_param_uint32(rdpSettings* settings, int id, UINT32 param)
 		case FreeRDP_DynamicChannelArraySize:
 			settings->DynamicChannelArraySize = param;
 			break;
+
+		case FreeRDP_TlsSecLevel:
+			settings->TlsSecLevel = param;
 
 		default:
 			WLog_ERR(TAG, "freerdp_set_param_uint32: unknown id %d (param = %"PRIu32")", id, param);

@@ -235,6 +235,9 @@ static BOOL update_process_glyph_fragments(rdpContext* context,
 	                      fOpRedundant))
 		return FALSE;
 
+	if (!IFCALLRESULT(TRUE, glyph->SetBounds, context, bkX, bkY, bkWidth, bkHeight))
+		return FALSE;
+
 	while (index < length)
 	{
 		const UINT32 op = data[index++];
@@ -793,6 +796,9 @@ CACHE_GLYPH_ORDER* copy_cache_glyph_order(rdpContext* context, const CACHE_GLYPH
 
 	if (glyph->unicodeCharacters)
 	{
+		if (glyph->cGlyphs == 0)
+			goto fail;
+
 		dst->unicodeCharacters = calloc(glyph->cGlyphs, sizeof(WCHAR));
 
 		if (!dst->unicodeCharacters)
@@ -852,6 +858,9 @@ CACHE_GLYPH_V2_ORDER* copy_cache_glyph_v2_order(rdpContext* context,
 
 	if (glyph->unicodeCharacters)
 	{
+		if (glyph->cGlyphs == 0)
+			goto fail;
+
 		dst->unicodeCharacters = calloc(glyph->cGlyphs, sizeof(WCHAR));
 
 		if (!dst->unicodeCharacters)

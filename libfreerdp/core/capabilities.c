@@ -415,7 +415,7 @@ static BOOL rdp_write_bitmap_capability_set(wStream* s, rdpSettings* settings)
 	 * appears consistent in its use.
 	 */
 
-	if (settings->RdpVersion > 5)
+	if (settings->RdpVersion >= RDP_VERSION_5_PLUS)
 		preferredBitsPerPixel = settings->ColorDepth;
 	else
 		preferredBitsPerPixel = 8;
@@ -1309,14 +1309,22 @@ static BOOL rdp_write_input_capability_set(wStream* s, rdpSettings* settings)
 		return FALSE;
 
 	header = rdp_capability_set_start(s);
-	inputFlags = INPUT_FLAG_SCANCODES | INPUT_FLAG_MOUSEX | INPUT_FLAG_UNICODE |
-	             TS_INPUT_FLAG_MOUSE_HWHEEL;
+	inputFlags = INPUT_FLAG_SCANCODES;
 
 	if (settings->FastPathInput)
 	{
 		inputFlags |= INPUT_FLAG_FASTPATH_INPUT;
 		inputFlags |= INPUT_FLAG_FASTPATH_INPUT2;
 	}
+
+	if (settings->HasHorizontalWheel)
+		inputFlags |= TS_INPUT_FLAG_MOUSE_HWHEEL;
+
+	if (settings->UnicodeInput)
+		inputFlags |= INPUT_FLAG_UNICODE;
+
+	if (settings->HasExtendedMouseEvent)
+		inputFlags |= INPUT_FLAG_MOUSEX;
 
 	Stream_Write_UINT16(s, inputFlags); /* inputFlags (2 bytes) */
 	Stream_Write_UINT16(s, 0); /* pad2OctetsA (2 bytes) */
@@ -2244,7 +2252,7 @@ static BOOL rdp_read_window_list_capability_set(wStream* s, UINT16 length,
 	if (length < 11)
 		return FALSE;
 
-	Stream_Seek_UINT32(s); /* wndSupportLevel (4 bytes) */
+	Stream_Read_UINT32(s, settings->RemoteWndSupportLevel); /* wndSupportLevel (4 bytes) */
 	Stream_Read_UINT8(s, settings->RemoteAppNumIconCaches); /* numIconCaches (1 byte) */
 	Stream_Read_UINT16(s, settings->RemoteAppNumIconCacheEntries); /* numIconCacheEntries (2 bytes) */
 	return TRUE;
@@ -2260,14 +2268,12 @@ static BOOL rdp_read_window_list_capability_set(wStream* s, UINT16 length,
 static BOOL rdp_write_window_list_capability_set(wStream* s, rdpSettings* settings)
 {
 	int header;
-	UINT32 wndSupportLevel;
 
 	if (!Stream_EnsureRemainingCapacity(s, 32))
 		return FALSE;
 
 	header = rdp_capability_set_start(s);
-	wndSupportLevel = WINDOW_LEVEL_SUPPORTED_EX;
-	Stream_Write_UINT32(s, wndSupportLevel); /* wndSupportLevel (4 bytes) */
+	Stream_Write_UINT32(s, settings->RemoteWndSupportLevel); /* wndSupportLevel (4 bytes) */
 	Stream_Write_UINT8(s, settings->RemoteAppNumIconCaches); /* numIconCaches (1 byte) */
 	Stream_Write_UINT16(s, settings->RemoteAppNumIconCacheEntries); /* numIconCacheEntries (2 bytes) */
 	rdp_capability_set_finish(s, header, CAPSET_TYPE_WINDOW);
@@ -4072,7 +4078,7 @@ BOOL rdp_write_confirm_active(wStream* s, rdpSettings* settings)
 	    !rdp_write_order_capability_set(s, settings))
 		return FALSE;
 
-	if (settings->RdpVersion >= 5)
+	if (settings->RdpVersion >= RDP_VERSION_5_PLUS)
 		ret = rdp_write_bitmap_cache_v2_capability_set(s, settings);
 	else
 		ret = rdp_write_bitmap_cache_capability_set(s, settings);

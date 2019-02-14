@@ -130,24 +130,6 @@ static void android_OnChannelDisconnectedEventHandler(
 
 static BOOL android_begin_paint(rdpContext* context)
 {
-	rdpGdi* gdi;
-	HGDI_WND hwnd;
-
-	if (!context)
-		return FALSE;
-
-	gdi = context->gdi;
-
-	if (!gdi || !gdi->primary || !gdi->primary->hdc)
-		return FALSE;
-
-	hwnd = gdi->primary->hdc->hwnd;
-
-	if (!hwnd || !hwnd->invalid)
-		return FALSE;
-
-	hwnd->invalid->null = TRUE;
-	hwnd->ninvalid = 0;
 	return TRUE;
 }
 
@@ -182,9 +164,9 @@ static BOOL android_end_paint(rdpContext* context)
 
 	ninvalid = hwnd->ninvalid;
 
-	if (ninvalid == 0)
+	if (ninvalid < 1)
 		return TRUE;
-
+	
 	cinvalid = hwnd->cinvalid;
 
 	if (!cinvalid)
@@ -205,6 +187,9 @@ static BOOL android_end_paint(rdpContext* context)
 
 	freerdp_callback("OnGraphicsUpdate", "(JIIII)V", (jlong)context->instance,
 	                 x1, y1, x2 - x1, y2 - y1);
+
+	hwnd->invalid->null = TRUE;
+	hwnd->ninvalid = 0;
 	return TRUE;
 }
 
@@ -223,41 +208,15 @@ static BOOL android_pre_connect(freerdp* instance)
 {
 	int rc;
 	rdpSettings* settings;
-	BOOL bitmap_cache;
 
 	if (!instance)
 		return FALSE;
 
 	settings = instance->settings;
 
-	if (!settings || !settings->OrderSupport)
+	if (!settings)
 		return FALSE;
 
-	bitmap_cache = settings->BitmapCacheEnabled;
-	settings->OrderSupport[NEG_DSTBLT_INDEX] = TRUE;
-	settings->OrderSupport[NEG_PATBLT_INDEX] = TRUE;
-	settings->OrderSupport[NEG_SCRBLT_INDEX] = TRUE;
-	settings->OrderSupport[NEG_OPAQUE_RECT_INDEX] = TRUE;
-	settings->OrderSupport[NEG_DRAWNINEGRID_INDEX] = FALSE;
-	settings->OrderSupport[NEG_MULTIDSTBLT_INDEX] = FALSE;
-	settings->OrderSupport[NEG_MULTIPATBLT_INDEX] = FALSE;
-	settings->OrderSupport[NEG_MULTISCRBLT_INDEX] = FALSE;
-	settings->OrderSupport[NEG_MULTIOPAQUERECT_INDEX] = TRUE;
-	settings->OrderSupport[NEG_MULTI_DRAWNINEGRID_INDEX] = FALSE;
-	settings->OrderSupport[NEG_LINETO_INDEX] = TRUE;
-	settings->OrderSupport[NEG_POLYLINE_INDEX] = TRUE;
-	settings->OrderSupport[NEG_MEMBLT_INDEX] = bitmap_cache;
-	settings->OrderSupport[NEG_MEM3BLT_INDEX] = TRUE;
-	settings->OrderSupport[NEG_MEMBLT_V2_INDEX] = bitmap_cache;
-	settings->OrderSupport[NEG_MEM3BLT_V2_INDEX] = FALSE;
-	settings->OrderSupport[NEG_SAVEBITMAP_INDEX] = FALSE;
-	settings->OrderSupport[NEG_GLYPH_INDEX_INDEX] = TRUE;
-	settings->OrderSupport[NEG_FAST_INDEX_INDEX] = TRUE;
-	settings->OrderSupport[NEG_FAST_GLYPH_INDEX] = TRUE;
-	settings->OrderSupport[NEG_POLYGON_SC_INDEX] = FALSE;
-	settings->OrderSupport[NEG_POLYGON_CB_INDEX] = FALSE;
-	settings->OrderSupport[NEG_ELLIPSE_SC_INDEX] = FALSE;
-	settings->OrderSupport[NEG_ELLIPSE_CB_INDEX] = FALSE;
 	rc = PubSub_SubscribeChannelConnected(
 	         instance->context->pubSub,
 	         android_OnChannelConnectedEventHandler);
@@ -375,7 +334,6 @@ static BOOL android_post_connect(freerdp* instance)
 	instance->update->BeginPaint = android_begin_paint;
 	instance->update->EndPaint = android_end_paint;
 	instance->update->DesktopResize = android_desktop_resize;
-	pointer_cache_register_callbacks(update);
 	freerdp_callback("OnSettingsChanged", "(JIII)V", (jlong)instance,
 	                 settings->DesktopWidth, settings->DesktopHeight,
 	                 settings->ColorDepth);
@@ -619,6 +577,8 @@ disconnect:
 
 	if (async_input && inputThread)
 	{
+		wMessageQueue* input_queue = freerdp_get_message_queue(instance, FREERDP_INPUT_MESSAGE_QUEUE);
+		MessageQueue_PostQuit(input_queue, 0);
 		WaitForSingleObject(inputThread, INFINITE);
 		CloseHandle(inputThread);
 	}
@@ -818,6 +778,17 @@ static void JNICALL jni_freerdp_free(JNIEnv* env, jclass cls, jlong instance)
 #endif
 }
 
+static jstring JNICALL jni_freerdp_get_last_error_string(JNIEnv* env, jclass cls, jlong instance)
+{
+	freerdp* inst = (freerdp*)instance;
+
+	if (!inst || !inst->context)
+		return (*env)->NewStringUTF(env, "");
+
+	return (*env)->NewStringUTF(env,
+	                            freerdp_get_last_error_string(freerdp_get_last_error(inst->context)));
+}
+
 static jboolean JNICALL jni_freerdp_parse_arguments(
     JNIEnv* env, jclass cls, jlong instance, jobjectArray arguments)
 {
@@ -869,7 +840,7 @@ static jboolean JNICALL jni_freerdp_connect(JNIEnv* env, jclass cls,
 	ctx = (androidContext*)inst->context;
 
 	if (!(ctx->thread = CreateThread(NULL, 0, android_thread_func,
-	                        inst, 0, NULL)))
+	                                 inst, 0, NULL)))
 	{
 		return JNI_FALSE;
 	}
@@ -1125,6 +1096,11 @@ static JNINativeMethod methods[] =
 		"freerdp_get_build_config",
 		"()Ljava/lang/String;",
 		&jni_freerdp_get_build_config
+	},
+	{
+		"freerdp_get_last_error_string",
+		"(J)Ljava/lang/String;",
+		&jni_freerdp_get_last_error_string
 	},
 	{
 		"freerdp_new",

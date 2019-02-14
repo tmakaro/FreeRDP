@@ -417,9 +417,6 @@ static int rpc_client_recv_fragment(rdpRpc* rpc, wStream* fragment)
 		}
 		else
 		{
-			if (rpc->VirtualConnection->State < VIRTUAL_CONNECTION_STATE_OPENED)
-				WLog_ERR(TAG, "warning: unhandled RTS PDU");
-
 			if (rts_recv_out_of_sequence_pdu(rpc, buffer, header->common.frag_length) < 0)
 				return -1;
 		}
@@ -446,7 +443,7 @@ static int rpc_client_recv_fragment(rdpRpc* rpc, wStream* fragment)
 	}
 	else if (header->common.ptype == PTYPE_FAULT)
 	{
-		rpc_recv_fault_pdu(header);
+		rpc_recv_fault_pdu(header->fault.status);
 		return -1;
 	}
 	else
@@ -476,7 +473,7 @@ static int rpc_client_default_out_channel_recv(rdpRpc* rpc)
 		if (WaitForSingleObject(outChannelEvent, 0) != WAIT_OBJECT_0)
 			return 1;
 
-		response = http_response_recv(outChannel->common.tls);
+		response = http_response_recv(outChannel->common.tls, TRUE);
 
 		if (!response)
 			return -1;
@@ -533,7 +530,7 @@ static int rpc_client_default_out_channel_recv(rdpRpc* rpc)
 		if (WaitForSingleObject(outChannelEvent, 0) != WAIT_OBJECT_0)
 			return 1;
 
-		response = http_response_recv(outChannel->common.tls);
+		response = http_response_recv(outChannel->common.tls, FALSE);
 
 		if (!response)
 			return -1;
@@ -646,37 +643,45 @@ static int rpc_client_nondefault_out_channel_recv(rdpRpc* rpc)
 	if (WaitForSingleObject(nextOutChannelEvent, 0) != WAIT_OBJECT_0)
 		return 1;
 
-	response = http_response_recv(nextOutChannel->common.tls);
+	response = http_response_recv(nextOutChannel->common.tls, TRUE);
 
 	if (response)
 	{
-		if (nextOutChannel->State == CLIENT_OUT_CHANNEL_STATE_SECURITY)
+		switch (nextOutChannel->State)
 		{
-			if (rpc_ncacn_http_recv_out_channel_response(&nextOutChannel->common, response))
-			{
-				if (rpc_ncacn_http_send_out_channel_request(&nextOutChannel->common, TRUE))
+			case  CLIENT_OUT_CHANNEL_STATE_SECURITY:
+				if (rpc_ncacn_http_recv_out_channel_response(&nextOutChannel->common, response))
 				{
-					rpc_ncacn_http_ntlm_uninit(&nextOutChannel->common);
-					status = rts_send_OUT_R1_A3_pdu(rpc);
-
-					if (status >= 0)
+					if (rpc_ncacn_http_send_out_channel_request(&nextOutChannel->common, TRUE))
 					{
-						rpc_out_channel_transition_to_state(nextOutChannel, CLIENT_OUT_CHANNEL_STATE_OPENED_A6W);
+						rpc_ncacn_http_ntlm_uninit(&nextOutChannel->common);
+						status = rts_send_OUT_R1_A3_pdu(rpc);
+
+						if (status >= 0)
+						{
+							rpc_out_channel_transition_to_state(nextOutChannel, CLIENT_OUT_CHANNEL_STATE_OPENED_A6W);
+						}
+						else
+						{
+							WLog_ERR(TAG, "rts_send_OUT_R1/A3_pdu failure");
+						}
 					}
 					else
 					{
-						WLog_ERR(TAG, "rts_send_OUT_R1/A3_pdu failure");
+						WLog_ERR(TAG, "rpc_ncacn_http_send_out_channel_request failure");
 					}
 				}
 				else
 				{
-					WLog_ERR(TAG, "rpc_ncacn_http_send_out_channel_request failure");
+					WLog_ERR(TAG, "rpc_ncacn_http_recv_out_channel_response failure");
 				}
-			}
-			else
-			{
-				WLog_ERR(TAG, "rpc_ncacn_http_recv_out_channel_response failure");
-			}
+
+				break;
+
+			default:
+				WLog_ERR(TAG, "rpc_client_nondefault_out_channel_recv: Unexpected message %08"PRIx32,
+				         nextOutChannel->State);
+				return -1;
 		}
 
 		http_response_free(response);
@@ -726,7 +731,7 @@ int rpc_client_in_channel_recv(rdpRpc* rpc)
 
 	if (inChannel->State < CLIENT_IN_CHANNEL_STATE_OPENED)
 	{
-		response = http_response_recv(inChannel->common.tls);
+		response = http_response_recv(inChannel->common.tls, TRUE);
 
 		if (!response)
 			return -1;
@@ -778,7 +783,7 @@ int rpc_client_in_channel_recv(rdpRpc* rpc)
 	}
 	else
 	{
-		response = http_response_recv(inChannel->common.tls);
+		response = http_response_recv(inChannel->common.tls, TRUE);
 
 		if (!response)
 			return -1;

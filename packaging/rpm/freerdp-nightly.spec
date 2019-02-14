@@ -40,6 +40,7 @@ BuildRequires: libXv-devel
 BuildRequires: libXdamage-devel
 BuildRequires: libXtst-devel
 BuildRequires: cups-devel
+BuildRequires: cairo-devel
 BuildRequires: pcsc-lite-devel
 BuildRequires: uuid-devel
 BuildRequires: libxml2-devel
@@ -63,7 +64,7 @@ BuildRequires: wayland-devel
 BuildRequires: libjpeg-devel
 BuildRequires: libavutil-devel
 BuildRequires: libavcodec-devel
-BuildRequires: libswresample-devel || libavresample-devel
+BuildRequires: libswresample-devel
 %endif
 # fedora 21+
 %if 0%{?fedora} >= 21 || 0%{?rhel} >= 7

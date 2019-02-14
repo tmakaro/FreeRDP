@@ -163,9 +163,7 @@ void xf_SetWindowFullscreen(xfContext* xfc, xfWindow* window, BOOL fullscreen)
 	/* show/hide decorations (e.g. title bar) as guided by xfc->decorations */
 	xf_SetWindowDecorations(xfc, window->handle, window->decorations);
 	DEBUG_X11(TAG, "X window decoration set to %d", (int)window->decorations);
-
-	if (xfc->floatbar)
-		xf_floatbar_toggle_visibility(xfc, fullscreen);
+	xf_floatbar_toggle_fullscreen(xfc->window->floatbar, fullscreen);
 
 	if (fullscreen)
 	{
@@ -173,8 +171,8 @@ void xf_SetWindowFullscreen(xfContext* xfc, xfWindow* window, BOOL fullscreen)
 		xfc->savedHeight = xfc->window->height;
 		xfc->savedPosX = xfc->window->left;
 		xfc->savedPosY = xfc->window->top;
-		startX = settings->DesktopPosX;
-		startY = settings->DesktopPosY;
+		startX = (settings->DesktopPosX != UINT32_MAX) ? settings->DesktopPosX : 0;
+		startY = (settings->DesktopPosY != UINT32_MAX) ? settings->DesktopPosY : 0;
 	}
 	else
 	{
@@ -558,6 +556,7 @@ xfWindow* xf_CreateDesktopWindow(xfContext* xfc, char* name, int width,
 
 	XSelectInput(xfc->display, window->handle, input_mask);
 	XClearWindow(xfc->display, window->handle);
+	xf_SetWindowTitleText(xfc, window->handle, name);
 	XMapWindow(xfc->display, window->handle);
 	xf_input_init(xfc, window->handle);
 
@@ -580,14 +579,13 @@ xfWindow* xf_CreateDesktopWindow(xfContext* xfc, char* name, int width,
 	{
 		XMoveWindow(xfc->display, window->handle, 0, 0);
 	}
-	else if (settings->DesktopPosX || settings->DesktopPosY)
+	else if (settings->DesktopPosX != UINT32_MAX && settings->DesktopPosY != UINT32_MAX)
 	{
 		XMoveWindow(xfc->display, window->handle, settings->DesktopPosX,
 		            settings->DesktopPosY);
 	}
 
-	window->floatbar = xf_floatbar_new(xfc, window->handle);
-	xf_SetWindowTitleText(xfc, window->handle, name);
+	window->floatbar = xf_floatbar_new(xfc, window->handle, name, settings->Floatbar);
 	return window;
 }
 
@@ -636,8 +634,7 @@ void xf_DestroyDesktopWindow(xfContext* xfc, xfWindow* window)
 	if (xfc->window == window)
 		xfc->window = NULL;
 
-	if (window->floatbar)
-		xf_floatbar_free(xfc, window, window->floatbar);
+	xf_floatbar_free(window->floatbar);
 
 	if (window->gc)
 		XFreeGC(xfc->display, window->gc);
@@ -988,6 +985,8 @@ void xf_ShowWindow(xfContext* xfc, xfAppWindow* appWindow, BYTE state)
 			if (appWindow->is_transient)
 				xf_SetWindowUnlisted(xfc, appWindow->handle);
 
+			XMapWindow(xfc->display, appWindow->handle);
+
 			break;
 	}
 
@@ -995,43 +994,6 @@ void xf_ShowWindow(xfContext* xfc, xfAppWindow* appWindow, BYTE state)
 	appWindow->rail_state = state;
 	XFlush(xfc->display);
 }
-
-#if 0
-void xf_SetWindowIcon(xfContext* xfc, xfAppWindow* appWindow, rdpIcon* icon)
-{
-	int x, y;
-	int pixels;
-	int propsize;
-	long* propdata;
-	long* dstp;
-	UINT32* srcp;
-
-	if (!icon->big)
-		return;
-
-	pixels = icon->entry->width * icon->entry->height;
-	propsize = 2 + pixels;
-	propdata = malloc(propsize * sizeof(long));
-	propdata[0] = icon->entry->width;
-	propdata[1] = icon->entry->height;
-	dstp = &(propdata[2]);
-	srcp = (UINT32*) icon->extra;
-
-	for (y = 0; y < icon->entry->height; y++)
-	{
-		for (x = 0; x < icon->entry->width; x++)
-		{
-			*dstp++ = *srcp++;
-		}
-	}
-
-	XChangeProperty(xfc->display, appWindow->handle, xfc->_NET_WM_ICON, XA_CARDINAL,
-	                32,
-	                PropModeReplace, (BYTE*) propdata, propsize);
-	XFlush(xfc->display);
-	free(propdata);
-}
-#endif
 
 void xf_SetWindowRects(xfContext* xfc, xfAppWindow* appWindow,
                        RECTANGLE_16* rects, int nrects)
@@ -1155,8 +1117,7 @@ xfAppWindow* xf_AppWindowFromX11Window(xfContext* xfc, Window wnd)
 
 	for (index = 0; index < count; index++)
 	{
-		appWindow = (xfAppWindow*) HashTable_GetItemValue(xfc->railWindows,
-		            (void*) pKeys[index]);
+		appWindow = (xfAppWindow*) HashTable_GetItemValue(xfc->railWindows, (void*) pKeys[index]);
 
 		if (appWindow->handle == wnd)
 		{

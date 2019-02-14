@@ -676,7 +676,7 @@ static BOOL rdp_read_info_packet(rdpRdp* rdp, wStream* s)
 
 	Stream_Seek(s, 2);
 
-	if (settings->RdpVersion >= 5)
+	if (settings->RdpVersion >= RDP_VERSION_5_PLUS)
 		return rdp_read_extended_info_packet(rdp, s); /* extraInfo */
 
 	return TRUE;
@@ -873,7 +873,7 @@ static void rdp_write_info_packet(rdpRdp* rdp, wStream* s)
 	if (!usedPasswordCookie)
 		free(passwordW);
 
-	if (settings->RdpVersion >= 5)
+	if (settings->RdpVersion >= RDP_VERSION_5_PLUS)
 		rdp_write_extended_info_packet(rdp, s); /* extraInfo */
 }
 
@@ -1335,7 +1335,7 @@ static BOOL rdp_write_logon_info_v2(wStream* s, logon_info* info)
 {
 	int Size = 2 + 4 + 4 + 4 + 4 + 558;
 	int domainLen, usernameLen, len;
-	WCHAR* wString;
+	WCHAR* wString = NULL;
 
 	if (!Stream_EnsureRemainingCapacity(s, Size))
 		return FALSE;
@@ -1460,4 +1460,18 @@ BOOL rdp_send_save_session_info(rdpContext* context, UINT32 type, void* data)
 		Stream_Release(s);
 
 	return status;
+}
+
+BOOL rdp_send_server_status_info(rdpContext* context, UINT32 status)
+{
+	wStream* s;
+	rdpRdp* rdp = context->rdp;
+	s = rdp_data_pdu_init(rdp);
+
+	if (!s)
+		return FALSE;
+
+	Stream_Write_UINT32(s, status);
+
+	return rdp_send_data_pdu(rdp, s, DATA_PDU_TYPE_STATUS_INFO, rdp->mcs->userId);;
 }

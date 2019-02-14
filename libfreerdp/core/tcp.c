@@ -380,7 +380,7 @@ static int transport_bio_simple_uninit(BIO* bio)
 
 	if (BIO_get_shutdown(bio))
 	{
-		if (BIO_get_init(bio))
+		if (BIO_get_init(bio) && ptr)
 		{
 			_shutdown(ptr->socket, SD_BOTH);
 			closesocket(ptr->socket);
@@ -388,7 +388,7 @@ static int transport_bio_simple_uninit(BIO* bio)
 		}
 	}
 
-	if (ptr->hEvent)
+	if (ptr && ptr->hEvent)
 	{
 		CloseHandle(ptr->hEvent);
 		ptr->hEvent = NULL;
@@ -627,16 +627,15 @@ static int transport_bio_buffered_new(BIO* bio)
 	return 1;
 }
 
+/* Free the buffered BIO.
+ * Do not free other elements in the BIO stack,
+ * let BIO_free_all handle that. */
 static int transport_bio_buffered_free(BIO* bio)
 {
 	WINPR_BIO_BUFFERED_SOCKET* ptr = (WINPR_BIO_BUFFERED_SOCKET*) BIO_get_data(bio);
-	BIO* next_bio = BIO_next(bio);
 
-	if (next_bio)
-	{
-		BIO_free(next_bio);
-		BIO_set_next(bio, NULL);
-	}
+	if (!ptr)
+		return 0;
 
 	ringbuffer_destroy(&ptr->xmitBuffer);
 	free(ptr);
@@ -882,43 +881,53 @@ fail:
 	return rc;
 }
 
+typedef struct
+{
+	SOCKET s;
+	struct addrinfo* addr;
+	struct addrinfo* result;
+} t_peer;
+
+static void peer_free(t_peer* peer)
+{
+	if (peer->s != INVALID_SOCKET)
+		closesocket(peer->s);
+
+	freeaddrinfo(peer->addr);
+	memset(peer, 0, sizeof(t_peer));
+	peer->s = INVALID_SOCKET;
+}
+
 static int freerdp_tcp_connect_multi(rdpContext* context, char** hostnames,
                                      UINT32* ports, UINT32 count, int port,
                                      int timeout)
 {
-	int index;
-	int sindex;
-	int status;
-	SOCKET sockfd = -1;
-	SOCKET* sockfds;
+	UINT32 index;
+	UINT32 sindex = count;
+	int status = -1;
+	SOCKET sockfd = INVALID_SOCKET;
 	HANDLE* events;
-	DWORD waitStatus;
 	struct addrinfo* addr;
 	struct addrinfo* result;
-	struct addrinfo** addrs;
-	struct addrinfo** results;
-	sockfds = (SOCKET*) calloc(count, sizeof(SOCKET));
+	t_peer* peers;
 	events = (HANDLE*) calloc(count + 1, sizeof(HANDLE));
-	addrs = (struct addrinfo**) calloc(count, sizeof(struct addrinfo*));
-	results = (struct addrinfo**) calloc(count, sizeof(struct addrinfo*));
+	peers = (t_peer*)calloc(count, sizeof(t_peer));
 
-	if (!sockfds || !events || !addrs || !results)
+	if (!peers || !events || (count < 1))
 	{
-		free(sockfds);
+		free(peers);
 		free(events);
-		free(addrs);
-		free(results);
 		return -1;
 	}
 
 	for (index = 0; index < count; index++)
 	{
-		int port = -1;
+		int curPort = port;
 
 		if (ports)
-			port = ports[index];
+			curPort = ports[index];
 
-		result = freerdp_tcp_resolve_host(hostnames[index], port, 0);
+		result = freerdp_tcp_resolve_host(hostnames[index], curPort, 0);
 
 		if (!result)
 			continue;
@@ -937,96 +946,49 @@ static int freerdp_tcp_connect_multi(rdpContext* context, char** hostnames,
 				addr = result;
 		}
 
-		sockfds[index] = _socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+		peers[index].s = _socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
 
-		if (sockfds[index] == INVALID_SOCKET)
+		if (peers[index].s == INVALID_SOCKET)
 		{
 			freeaddrinfo(result);
-			sockfds[index] = 0;
 			continue;
 		}
 
-		addrs[index] = addr;
-		results[index] = result;
+		peers[index].addr = addr;
+		peers[index].result = result;
 	}
 
 	for (index = 0; index < count; index++)
 	{
-		if (!sockfds[index])
+		sockfd = peers[index].s;
+		addr = peers[index].addr;
+
+		if ((sockfd == INVALID_SOCKET) || (!addr))
 			continue;
 
-		sockfd = sockfds[index];
-		addr = addrs[index];
-		/* set socket in non-blocking mode */
-		events[index] = WSACreateEvent();
-
-		if (!events[index])
-		{
-			WLog_ERR(TAG, "WSACreateEvent returned 0x%08X", WSAGetLastError());
-			continue;
-		}
-
-		if (WSAEventSelect(sockfd, events[index], FD_READ | FD_WRITE | FD_CONNECT | FD_CLOSE))
-		{
-			WLog_ERR(TAG, "WSAEventSelect returned 0x%08X", WSAGetLastError());
-			continue;
-		}
-
-		/* non-blocking tcp connect */
+		/* blocking tcp connect */
 		status = _connect(sockfd, addr->ai_addr, addr->ai_addrlen);
 
 		if (status >= 0)
 		{
 			/* connection success */
+			sindex = index;
 			break;
 		}
 	}
 
-	events[count] = context->abortEvent;
-	waitStatus = WaitForMultipleObjects(count + 1, events, FALSE, timeout * 1000);
-	sindex = waitStatus - WAIT_OBJECT_0;
-
-	for (index = 0; index < count; index++)
+	if (sindex < count)
 	{
-		u_long arg = 0;
-
-		if (!sockfds[index])
-			continue;
-
-		sockfd = sockfds[index];
-
-		/* set socket in blocking mode */
-		if (WSAEventSelect(sockfd, NULL, 0))
-		{
-			WLog_ERR(TAG, "WSAEventSelect returned 0x%08X", WSAGetLastError());
-			continue;
-		}
-
-		if (_ioctlsocket(sockfd, FIONBIO, &arg))
-		{
-			WLog_ERR(TAG, "_ioctlsocket failed");
-		}
+		sockfd = peers[sindex].s;
+		peers[sindex].s = INVALID_SOCKET;
 	}
-
-	if ((sindex >= 0) && (sindex < count))
-	{
-		sockfd = sockfds[sindex];
-	}
-
-	if (sindex == count)
+	else
 		freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_CANCELLED);
 
 	for (index = 0; index < count; index++)
-	{
-		if (results[index])
-			freeaddrinfo(results[index]);
+		peer_free(&peers[index]);
 
-		CloseHandle(events[index]);
-	}
-
-	free(addrs);
-	free(results);
-	free(sockfds);
+	free(peers);
 	free(events);
 	return sockfd;
 }

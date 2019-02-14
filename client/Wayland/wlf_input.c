@@ -23,38 +23,64 @@
 
 #include <freerdp/locale/keyboard.h>
 
+#include "wlfreerdp.h"
 #include "wlf_input.h"
 
-BOOL wlf_handle_pointer_enter(freerdp* instance, UwacPointerEnterLeaveEvent* ev)
+BOOL wlf_handle_pointer_enter(freerdp* instance, const UwacPointerEnterLeaveEvent* ev)
 {
+	uint32_t x, y;
+
 	if (!instance || !ev || !instance->input)
 		return FALSE;
 
-	return freerdp_input_send_mouse_event(instance->input, PTR_FLAGS_MOVE, ev->x, ev->y);
+	x = ev->x;
+	y = ev->y;
+
+	if (!wlf_scale_coordinates(instance->context, &x, &y, TRUE))
+		return FALSE;
+
+	return freerdp_input_send_mouse_event(instance->input, PTR_FLAGS_MOVE, x, y);
 }
 
-BOOL wlf_handle_pointer_motion(freerdp* instance, UwacPointerMotionEvent* ev)
+BOOL wlf_handle_pointer_motion(freerdp* instance, const UwacPointerMotionEvent* ev)
 {
+	uint32_t x, y;
+
 	if (!instance || !ev || !instance->input)
 		return FALSE;
 
-	return freerdp_input_send_mouse_event(instance->input, PTR_FLAGS_MOVE, ev->x, ev->y);
+	x = ev->x;
+	y = ev->y;
+
+	if (!wlf_scale_coordinates(instance->context, &x, &y, TRUE))
+		return FALSE;
+
+	return freerdp_input_send_mouse_event(instance->input, PTR_FLAGS_MOVE, x, y);
 }
 
-BOOL wlf_handle_pointer_buttons(freerdp* instance, UwacPointerButtonEvent* ev)
+BOOL wlf_handle_pointer_buttons(freerdp* instance, const UwacPointerButtonEvent* ev)
 {
 	rdpInput* input;
-	UINT16 flags;
+	UINT16 flags = 0;
+	UINT16 xflags = 0;
+	uint32_t x, y;
 
 	if (!instance || !ev || !instance->input)
+		return FALSE;
+
+	x = ev->x;
+	y = ev->y;
+
+	if (!wlf_scale_coordinates(instance->context, &x, &y, TRUE))
 		return FALSE;
 
 	input = instance->input;
 
 	if (ev->state == WL_POINTER_BUTTON_STATE_PRESSED)
-		flags = PTR_FLAGS_DOWN;
-	else
-		flags = 0;
+	{
+		flags |= PTR_FLAGS_DOWN;
+		xflags |= PTR_XFLAGS_DOWN;
+	}
 
 	switch (ev->button)
 	{
@@ -70,40 +96,70 @@ BOOL wlf_handle_pointer_buttons(freerdp* instance, UwacPointerButtonEvent* ev)
 			flags |= PTR_FLAGS_BUTTON3;
 			break;
 
+		case BTN_SIDE:
+			xflags |= PTR_XFLAGS_BUTTON1;
+			break;
+
+		case BTN_EXTRA:
+			xflags |= PTR_XFLAGS_BUTTON2;
+			break;
+
 		default:
 			return TRUE;
 	}
 
-	return freerdp_input_send_mouse_event(input, flags, ev->x, ev->y);
+	if ((flags & ~PTR_FLAGS_DOWN) != 0)
+		return freerdp_input_send_mouse_event(input, flags, x, y);
+
+	if ((xflags & ~PTR_XFLAGS_DOWN) != 0)
+		return freerdp_input_send_extended_mouse_event(input, xflags, x, y);
+
+	return FALSE;
 }
 
 
-BOOL wlf_handle_pointer_axis(freerdp* instance, UwacPointerAxisEvent* ev)
+BOOL wlf_handle_pointer_axis(freerdp* instance, const UwacPointerAxisEvent* ev)
 {
 	rdpInput* input;
-	UINT16 flags;
+	UINT16 flags = 0;
 	int direction;
+	uint32_t x, y;
 
 	if (!instance || !ev || !instance->input)
 		return FALSE;
 
+	x = ev->x;
+	y = ev->y;
+
+	if (!wlf_scale_coordinates(instance->context, &x, &y, TRUE))
+		return FALSE;
+
 	input = instance->input;
-	flags = PTR_FLAGS_WHEEL;
 
-	if (ev->axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+	switch (ev->axis)
 	{
-		direction = wl_fixed_to_int(ev->value);
+		case WL_POINTER_AXIS_VERTICAL_SCROLL:
+			flags |= PTR_FLAGS_WHEEL;
+			break;
 
-		if (direction < 0)
-			flags |= 0x0078;
-		else
-			flags |= PTR_FLAGS_WHEEL_NEGATIVE | 0x0088;
+		case WL_POINTER_AXIS_HORIZONTAL_SCROLL:
+			flags |= PTR_FLAGS_HWHEEL;
+			break;
+
+		default:
+			return FALSE;
 	}
 
-	return freerdp_input_send_mouse_event(input, flags, ev->x, ev->y);
+	direction = wl_fixed_to_int(ev->value);
+	flags |= 0x0078; /* TODO: Calculate the distance with the provided value size */
+
+	if (direction < 0)
+		flags |= PTR_FLAGS_WHEEL_NEGATIVE;
+
+	return freerdp_input_send_mouse_event(input, flags, x, y);
 }
 
-BOOL wlf_handle_key(freerdp* instance, UwacKeyEvent* ev)
+BOOL wlf_handle_key(freerdp* instance, const UwacKeyEvent* ev)
 {
 	rdpInput* input;
 	DWORD rdp_scancode;
@@ -120,7 +176,7 @@ BOOL wlf_handle_key(freerdp* instance, UwacKeyEvent* ev)
 	return freerdp_input_send_keyboard_event_ex(input, ev->pressed, rdp_scancode);
 }
 
-BOOL wlf_keyboard_enter(freerdp* instance, UwacKeyboardEnterLeaveEvent* ev)
+BOOL wlf_keyboard_enter(freerdp* instance, const UwacKeyboardEnterLeaveEvent* ev)
 {
 	rdpInput* input;
 
@@ -129,5 +185,5 @@ BOOL wlf_keyboard_enter(freerdp* instance, UwacKeyboardEnterLeaveEvent* ev)
 
 	input = instance->input;
 	return freerdp_input_send_focus_in_event(input, 0) &&
-		   freerdp_input_send_mouse_event(input, PTR_FLAGS_MOVE, 0, 0);
+	       freerdp_input_send_mouse_event(input, PTR_FLAGS_MOVE, 0, 0);
 }

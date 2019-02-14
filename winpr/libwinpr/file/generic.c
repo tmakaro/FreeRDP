@@ -944,7 +944,7 @@ HANDLE FindFirstFileA(LPCSTR lpFileName, LPWIN32_FIND_DATAA lpFindFileData)
 				name++;
 
 			pFileSearch->lpPattern[0] = '*';
-			strcpy(lpFindFileData->cFileName, name);
+			sprintf_s(lpFindFileData->cFileName, ARRAYSIZE(lpFindFileData->cFileName), "%s", name);
 		}
 
 		return (HANDLE) pFileSearch;
@@ -1080,9 +1080,12 @@ BOOL FindNextFileA(HANDLE hFindFile, LPWIN32_FIND_DATAA lpFindFileData)
 			}
 
 			memcpy(fullpath, pFileSearch->lpPath, pathlen);
-			fullpath[pathlen] = '/';
-			memcpy(fullpath + pathlen + 1, pFileSearch->pDirent->d_name, namelen);
-			fullpath[pathlen + namelen + 1] = 0;
+			/* Ensure path is terminated with a separator, but prevent
+			 * duplicate separators */
+			if (fullpath[pathlen-1] != '/')
+				fullpath[pathlen++] = '/';
+			memcpy(fullpath + pathlen, pFileSearch->pDirent->d_name, namelen);
+			fullpath[pathlen + namelen] = 0;
 
 			if (stat(fullpath, &fileStat) != 0)
 			{
@@ -1140,8 +1143,13 @@ BOOL FindClose(HANDLE hFindFile)
 {
 	WIN32_FILE_SEARCH* pFileSearch = (WIN32_FILE_SEARCH*) hFindFile;
 
+	/* Since INVALID_HANDLE_VALUE != NULL the analyzer guesses that there
+	 * is a initialized HANDLE that is not freed properly.
+	 * Disable this return to stop confusing the analyzer. */
+#ifndef __clang_analyzer__
 	if (!pFileSearch || (pFileSearch == INVALID_HANDLE_VALUE))
 		return FALSE;
+#endif
 
 	free(pFileSearch->lpPath);
 	free(pFileSearch->lpPattern);

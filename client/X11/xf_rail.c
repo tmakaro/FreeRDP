@@ -22,6 +22,7 @@
 #endif
 
 #include <X11/Xlib.h>
+#include <X11/Xatom.h>
 #include <X11/Xutil.h>
 
 #include <winpr/wlog.h>
@@ -60,6 +61,22 @@ static const char* movetype_names[] =
 	"RAIL_WMSZ_KEYSIZE"
 };
 #endif
+
+struct xf_rail_icon
+{
+	long* data;
+	int length;
+};
+typedef struct xf_rail_icon xfRailIcon;
+
+struct xf_rail_icon_cache
+{
+	xfRailIcon* entries;
+	UINT32 numCaches;
+	UINT32 numCacheEntries;
+	xfRailIcon scratch;
+};
+typedef struct xf_rail_icon_cache xfRailIconCache;
 
 void xf_rail_enable_remoteapp_mode(xfContext* xfc)
 {
@@ -205,8 +222,7 @@ static void xf_rail_invalidate_region(xfContext* xfc, REGION16* invalidRegion)
 
 	for (index = 0; index < count; index++)
 	{
-		appWindow = (xfAppWindow*) HashTable_GetItemValue(xfc->railWindows,
-		            (void*) pKeys[index]);
+		appWindow = (xfAppWindow*) HashTable_GetItemValue(xfc->railWindows, (void*)pKeys[index]);
 
 		if (appWindow)
 		{
@@ -310,14 +326,12 @@ static BOOL xf_rail_window_common(rdpContext* context,
 			return FALSE;
 		}
 
-		HashTable_Add(xfc->railWindows, (void*)(UINT_PTR) orderInfo->windowId,
-		              (void*) appWindow);
+		HashTable_Add(xfc->railWindows, &appWindow->windowId, (void*) appWindow);
 		xf_AppWindowInit(xfc, appWindow);
 	}
 	else
 	{
-		appWindow = (xfAppWindow*) HashTable_GetItemValue(xfc->railWindows,
-		            (void*)(UINT_PTR) orderInfo->windowId);
+		appWindow = (xfAppWindow*) HashTable_GetItemValue(xfc->railWindows, &orderInfo->windowId);
 	}
 
 	if (!appWindow)
@@ -527,26 +541,335 @@ static BOOL xf_rail_window_delete(rdpContext* context,
 	if (!xfc)
 		return FALSE;
 
-	HashTable_Remove(xfc->railWindows, (void*)(UINT_PTR) orderInfo->windowId);
+	HashTable_Remove(xfc->railWindows, &orderInfo->windowId);
 	return TRUE;
+}
+
+static xfRailIconCache* RailIconCache_New(rdpSettings* settings)
+{
+	xfRailIconCache* cache;
+	cache = calloc(1, sizeof(xfRailIconCache));
+
+	if (!cache)
+		return NULL;
+
+	cache->numCaches = settings->RemoteAppNumIconCaches;
+	cache->numCacheEntries = settings->RemoteAppNumIconCacheEntries;
+	cache->entries = calloc(cache->numCaches * cache->numCacheEntries,
+	                        sizeof(xfRailIcon));
+
+	if (!cache->entries)
+	{
+		WLog_ERR(TAG, "failed to allocate icon cache %d x %d entries",
+		         cache->numCaches, cache->numCacheEntries);
+		free(cache);
+		return NULL;
+	}
+
+	return cache;
+}
+
+static void RailIconCache_Free(xfRailIconCache* cache)
+{
+	UINT32 i;
+
+	if (cache)
+	{
+		for (i = 0; i < cache->numCaches * cache->numCacheEntries; i++)
+		{
+			free(cache->entries[i].data);
+		}
+
+		free(cache->scratch.data);
+		free(cache->entries);
+		free(cache);
+	}
+}
+
+static xfRailIcon* RailIconCache_Lookup(xfRailIconCache* cache,
+                                        UINT8 cacheId, UINT16 cacheEntry)
+{
+	/*
+	 * MS-RDPERP 2.2.1.2.3 Icon Info (TS_ICON_INFO)
+	 *
+	 * CacheId (1 byte):
+	 *     If the value is 0xFFFF, the icon SHOULD NOT be cached.
+	 *
+	 * Yes, the spec says "0xFFFF" in the 2018-03-16 revision,
+	 * but the actual protocol field is 1-byte wide.
+	 */
+	if (cacheId == 0xFF)
+		return &cache->scratch;
+
+	if (cacheId >= cache->numCaches)
+		return NULL;
+
+	if (cacheEntry >= cache->numCacheEntries)
+		return NULL;
+
+	return &cache->entries[cache->numCacheEntries * cacheId + cacheEntry];
+}
+
+/*
+ * DIB color palettes are arrays of RGBQUAD structs with colors in BGRX format.
+ * They are used only by 1, 2, 4, and 8-bit bitmaps.
+ */
+static void fill_gdi_palette_for_icon(ICON_INFO* iconInfo, gdiPalette* palette)
+{
+	UINT32 i;
+	palette->format = PIXEL_FORMAT_BGRX32;
+	ZeroMemory(palette->palette, sizeof(palette->palette));
+
+	if (!iconInfo->cbColorTable)
+		return;
+
+	if ((iconInfo->cbColorTable % 4 != 0) || (iconInfo->cbColorTable / 4 > 256))
+	{
+		WLog_WARN(TAG, "weird palette size: %u", iconInfo->cbColorTable);
+		return;
+	}
+
+	for (i = 0; i < iconInfo->cbColorTable / 4; i++)
+	{
+		palette->palette[i] = ReadColor(&iconInfo->colorTable[4 * i], palette->format);
+	}
+}
+
+static BOOL convert_icon_color_to_argb(ICON_INFO* iconInfo, BYTE* argbPixels)
+{
+	DWORD format;
+	gdiPalette palette;
+
+	/*
+	 * Color formats used by icons are DIB bitmap formats (2-bit format
+	 * is not used by MS-RDPERP). Note that 16-bit is RGB555, not RGB565,
+	 * and that 32-bit format uses BGRA order.
+	 */
+	switch (iconInfo->bpp)
+	{
+		case 1:
+		case 4:
+			/*
+			 * These formats are not supported by freerdp_image_copy().
+			 * PIXEL_FORMAT_MONO and PIXEL_FORMAT_A4 are *not* correct
+			 * color formats for this. Please fix freerdp_image_copy()
+			 * if you came here to fix a broken icon of some weird app
+			 * that still uses 1 or 4bpp format in the 21st century.
+			 */
+			WLog_WARN(TAG, "1bpp and 4bpp icons are not supported");
+			return FALSE;
+
+		case 8:
+			format = PIXEL_FORMAT_RGB8;
+			break;
+
+		case 16:
+			format = PIXEL_FORMAT_RGB15;
+			break;
+
+		case 24:
+			format = PIXEL_FORMAT_RGB24;
+			break;
+
+		case 32:
+			format = PIXEL_FORMAT_BGRA32;
+			break;
+
+		default:
+			WLog_WARN(TAG, "invalid icon bpp: %d", iconInfo->bpp);
+			return FALSE;
+	}
+
+	fill_gdi_palette_for_icon(iconInfo, &palette);
+	return freerdp_image_copy(
+	           argbPixels,
+	           PIXEL_FORMAT_ARGB32,
+	           0, 0, 0,
+	           iconInfo->width,
+	           iconInfo->height,
+	           iconInfo->bitsColor,
+	           format,
+	           0, 0, 0,
+	           &palette,
+	           FREERDP_FLIP_VERTICAL
+	       );
+}
+
+static inline UINT32 div_ceil(UINT32 a, UINT32 b)
+{
+	return (a + (b - 1)) / b;
+}
+
+static inline UINT32 round_up(UINT32 a, UINT32 b)
+{
+	return b * div_ceil(a, b);
+}
+
+static void apply_icon_alpha_mask(ICON_INFO* iconInfo, BYTE* argbPixels)
+{
+	BYTE nextBit;
+	BYTE* maskByte;
+	UINT32 x, y;
+	UINT32 stride;
+
+	if (!iconInfo->cbBitsMask)
+		return;
+
+	/*
+	 * Each byte encodes 8 adjacent pixels (with LSB padding as needed).
+	 * And due to hysterical raisins, stride of DIB bitmaps must be
+	 * a multiple of 4 bytes.
+	 */
+	stride = round_up(div_ceil(iconInfo->width, 8), 4);
+
+	for (y = 0; y < iconInfo->height; y++)
+	{
+		/* ɐᴉlɐɹʇsn∀ uᴉ ǝɹ,ǝʍ ʇɐɥʇ ʇǝƃɹoɟ ʇ,uop */
+		maskByte = &iconInfo->bitsMask[stride * (iconInfo->height - 1 - y)];
+		nextBit = 0x80;
+
+		for (x = 0; x < iconInfo->width; x++)
+		{
+			BYTE alpha = (*maskByte & nextBit) ? 0x00 : 0xFF;
+			argbPixels[4 * (x + y * iconInfo->width)] &= alpha;
+			nextBit >>= 1;
+
+			if (!nextBit)
+			{
+				nextBit = 0x80;
+				maskByte++;
+			}
+		}
+	}
+}
+
+/*
+ * _NET_WM_ICON format is defined as "array of CARDINAL" values which for
+ * Xlib must be represented with an array of C's "long" values. Note that
+ * "long" != "INT32" on 64-bit systems. Therefore we can't simply cast
+ * the bitmap data as (unsigned char*), we have to copy all the pixels.
+ *
+ * The first two values are width and height followed by actual color data
+ * in ARGB format (e.g., 0xFFFF0000L is opaque red), pixels are in normal,
+ * left-to-right top-down order.
+ */
+static BOOL convert_rail_icon(ICON_INFO* iconInfo, xfRailIcon* railIcon)
+{
+	BYTE* argbPixels;
+	BYTE* nextPixel;
+	long* pixels;
+	int i;
+	int nelements;
+	argbPixels = calloc(iconInfo->width * iconInfo->height, 4);
+
+	if (!argbPixels)
+		goto error;
+
+	if (!convert_icon_color_to_argb(iconInfo, argbPixels))
+		goto error;
+
+	apply_icon_alpha_mask(iconInfo, argbPixels);
+	nelements = 2 + iconInfo->width * iconInfo->height;
+	pixels = realloc(railIcon->data, nelements * sizeof(long));
+
+	if (!pixels)
+		goto error;
+
+	railIcon->data = pixels;
+	railIcon->length = nelements;
+	pixels[0] = iconInfo->width;
+	pixels[1] = iconInfo->height;
+	nextPixel = argbPixels;
+
+	for (i = 2; i < nelements; i++)
+	{
+		pixels[i] = ReadColor(nextPixel, PIXEL_FORMAT_BGRA32);
+		nextPixel += 4;
+	}
+
+	free(argbPixels);
+	return TRUE;
+error:
+	free(argbPixels);
+	return FALSE;
+}
+
+static void xf_rail_set_window_icon(xfContext* xfc,
+                                    xfAppWindow* railWindow, xfRailIcon* icon,
+                                    BOOL replace)
+{
+	XChangeProperty(xfc->display, railWindow->handle, xfc->_NET_WM_ICON,
+	                XA_CARDINAL, 32, replace ? PropModeReplace : PropModeAppend,
+	                (unsigned char*) icon->data, icon->length);
+	XFlush(xfc->display);
+}
+
+static xfAppWindow* xf_rail_get_window_by_id(xfContext* xfc, UINT32 windowId)
+{
+	return (xfAppWindow*) HashTable_GetItemValue(xfc->railWindows, &windowId);
 }
 
 static BOOL xf_rail_window_icon(rdpContext* context,
                                 WINDOW_ORDER_INFO* orderInfo, WINDOW_ICON_ORDER* windowIcon)
 {
 	xfContext* xfc = (xfContext*) context;
-	xfAppWindow* railWindow = (xfAppWindow*) HashTable_GetItemValue(xfc->railWindows,
-	                          (void*)(UINT_PTR) orderInfo->windowId);
+	xfAppWindow* railWindow;
+	xfRailIcon* icon;
+	BOOL replaceIcon;
+	railWindow = xf_rail_get_window_by_id(xfc, orderInfo->windowId);
 
 	if (!railWindow)
-		return FALSE;
+		return TRUE;
 
+	icon = RailIconCache_Lookup(xfc->railIconCache,
+	                            windowIcon->iconInfo->cacheId,
+	                            windowIcon->iconInfo->cacheEntry);
+
+	if (!icon)
+	{
+		WLog_WARN(TAG, "failed to get icon from cache %02X:%04X",
+		          windowIcon->iconInfo->cacheId,
+		          windowIcon->iconInfo->cacheEntry);
+		return FALSE;
+	}
+
+	if (!convert_rail_icon(windowIcon->iconInfo, icon))
+	{
+		WLog_WARN(TAG, "failed to convert icon for window %08X", orderInfo->windowId);
+		return FALSE;
+	}
+
+	replaceIcon = !!(orderInfo->fieldFlags & WINDOW_ORDER_STATE_NEW);
+	xf_rail_set_window_icon(xfc, railWindow, icon, replaceIcon);
 	return TRUE;
 }
 
 static BOOL xf_rail_window_cached_icon(rdpContext* context,
                                        WINDOW_ORDER_INFO* orderInfo, WINDOW_CACHED_ICON_ORDER* windowCachedIcon)
 {
+	xfContext* xfc = (xfContext*) context;
+	xfAppWindow* railWindow;
+	xfRailIcon* icon;
+	BOOL replaceIcon;
+	railWindow = xf_rail_get_window_by_id(xfc, orderInfo->windowId);
+
+	if (!railWindow)
+		return TRUE;
+
+	icon = RailIconCache_Lookup(xfc->railIconCache,
+	                            windowCachedIcon->cachedIcon.cacheId,
+	                            windowCachedIcon->cachedIcon.cacheEntry);
+
+	if (!icon)
+	{
+		WLog_WARN(TAG, "failed to get icon from cache %02X:%04X",
+		          windowCachedIcon->cachedIcon.cacheId,
+		          windowCachedIcon->cachedIcon.cacheEntry);
+		return FALSE;
+	}
+
+	replaceIcon = !!(orderInfo->fieldFlags & WINDOW_ORDER_STATE_NEW);
+	xf_rail_set_window_icon(xfc, railWindow, icon, replaceIcon);
 	return TRUE;
 }
 
@@ -672,17 +995,24 @@ static UINT xf_rail_server_system_param(RailClientContext* context,
 static UINT xf_rail_server_handshake(RailClientContext* context,
                                      const RAIL_HANDSHAKE_ORDER* handshake)
 {
-	RAIL_EXEC_ORDER exec;
-	RAIL_SYSPARAM_ORDER sysparam;
+	UINT status;
+	RAIL_EXEC_ORDER exec = { 0 };
+	RAIL_SYSPARAM_ORDER sysparam = { 0 };
 	RAIL_HANDSHAKE_ORDER clientHandshake;
-	RAIL_CLIENT_STATUS_ORDER clientStatus;
+	RAIL_CLIENT_STATUS_ORDER clientStatus = { 0 };
 	xfContext* xfc = (xfContext*) context->custom;
 	rdpSettings* settings = xfc->context.settings;
 	clientHandshake.buildNumber = 0x00001DB0;
-	context->ClientHandshake(context, &clientHandshake);
-	ZeroMemory(&clientStatus, sizeof(RAIL_CLIENT_STATUS_ORDER));
+	status = context->ClientHandshake(context, &clientHandshake);
+
+	if (status != CHANNEL_RC_OK)
+		return status;
+
 	clientStatus.flags = RAIL_CLIENTSTATUS_ALLOWLOCALMOVESIZE;
-	context->ClientInformation(context, &clientStatus);
+	status = context->ClientInformation(context, &clientStatus);
+
+	if (status != CHANNEL_RC_OK)
+		return status;
 
 	if (settings->RemoteAppLanguageBarSupported)
 	{
@@ -691,7 +1021,6 @@ static UINT xf_rail_server_handshake(RailClientContext* context,
 		context->ClientLanguageBarInfo(context, &langBarInfo);
 	}
 
-	ZeroMemory(&sysparam, sizeof(RAIL_SYSPARAM_ORDER));
 	sysparam.params = 0;
 	sysparam.params |= SPI_MASK_SET_HIGH_CONTRAST;
 	sysparam.highContrast.colorScheme.string = NULL;
@@ -711,13 +1040,15 @@ static UINT xf_rail_server_handshake(RailClientContext* context,
 	sysparam.workArea.right = settings->DesktopWidth;
 	sysparam.workArea.bottom = settings->DesktopHeight;
 	sysparam.dragFullWindows = FALSE;
-	context->ClientSystemParam(context, &sysparam);
-	ZeroMemory(&exec, sizeof(RAIL_EXEC_ORDER));
+	status = context->ClientSystemParam(context, &sysparam);
+
+	if (status != CHANNEL_RC_OK)
+		return status;
+
 	exec.RemoteApplicationProgram = settings->RemoteApplicationProgram;
 	exec.RemoteApplicationWorkingDir = settings->ShellWorkingDirectory;
 	exec.RemoteApplicationArguments = settings->RemoteApplicationCmdLine;
-	context->ClientExecute(context, &exec);
-	return CHANNEL_RC_OK;
+	return context->ClientExecute(context, &exec);
 }
 
 /**
@@ -745,7 +1076,7 @@ static UINT xf_rail_server_local_move_size(RailClientContext* context,
 	xfAppWindow* appWindow = NULL;
 	xfContext* xfc = (xfContext*) context->custom;
 	appWindow = (xfAppWindow*) HashTable_GetItemValue(xfc->railWindows,
-	            (void*)(UINT_PTR) localMoveSize->windowId);
+	            (void*)&localMoveSize->windowId);
 
 	if (!appWindow)
 		return ERROR_INTERNAL_ERROR;
@@ -840,8 +1171,7 @@ static UINT xf_rail_server_min_max_info(RailClientContext* context,
 {
 	xfAppWindow* appWindow = NULL;
 	xfContext* xfc = (xfContext*) context->custom;
-	appWindow = (xfAppWindow*) HashTable_GetItemValue(xfc->railWindows,
-	            (void*)(UINT_PTR) minMaxInfo->windowId);
+	appWindow = (xfAppWindow*) HashTable_GetItemValue(xfc->railWindows, (void*)&minMaxInfo->windowId);
 
 	if (appWindow)
 	{
@@ -877,6 +1207,16 @@ static UINT xf_rail_server_get_appid_response(RailClientContext* context,
 	return CHANNEL_RC_OK;
 }
 
+static BOOL rail_window_key_equals(void* key1, void* key2)
+{
+	return *(UINT32*)key1 == *(UINT32*)key2;
+}
+
+static UINT32 rail_window_key_hash(void* key)
+{
+	return *(UINT32*)key;
+}
+
 static void rail_window_free(void* value)
 {
 	xfAppWindow* appWindow = (xfAppWindow*) value;
@@ -910,7 +1250,17 @@ int xf_rail_init(xfContext* xfc, RailClientContext* rail)
 	if (!xfc->railWindows)
 		return 0;
 
+	xfc->railWindows->keyCompare = rail_window_key_equals;
+	xfc->railWindows->hash = rail_window_key_hash;
 	xfc->railWindows->valueFree = rail_window_free;
+	xfc->railIconCache = RailIconCache_New(xfc->context.settings);
+
+	if (!xfc->railIconCache)
+	{
+		HashTable_Free(xfc->railWindows);
+		return 0;
+	}
+
 	return 1;
 }
 
@@ -926,6 +1276,12 @@ int xf_rail_uninit(xfContext* xfc, RailClientContext* rail)
 	{
 		HashTable_Free(xfc->railWindows);
 		xfc->railWindows = NULL;
+	}
+
+	if (xfc->railIconCache)
+	{
+		RailIconCache_Free(xfc->railIconCache);
+		xfc->railIconCache = NULL;
 	}
 
 	return 1;

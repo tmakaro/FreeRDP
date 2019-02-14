@@ -68,9 +68,23 @@
 #define SC_MCS_MSGCHANNEL	0x0C04
 #define SC_MULTITRANSPORT	0x0C08
 
-/* RDP version */
-#define RDP_VERSION_4		0x00080001
-#define RDP_VERSION_5_PLUS	0x00080004
+/* RDP versions, see
+ * [MS-RDPBCGR] 2.2.1.3.2 Client Core Data (TS_UD_CS_CORE)
+ * [MS-RDPBCGR] 2.2.1.4.2 Server Core Data (TS_UD_SC_CORE)
+ */
+typedef enum
+{
+	RDP_VERSION_4		= 0x00080001,
+	RDP_VERSION_5_PLUS	= 0x00080004,
+	RDP_VERSION_10_0	= 0x00800005,
+	RDP_VERSION_10_1	= 0x00800006,
+	RDP_VERSION_10_2	= 0x00800007,
+	RDP_VERSION_10_3	= 0x00800008,
+	RDP_VERSION_10_4	= 0x00800009,
+	RDP_VERSION_10_5	= 0x0080000a,
+	RDP_VERSION_10_6	= 0x0080000b,
+}
+RDP_VERSION;
 
 /* Color depth */
 #define RNS_UD_COLOR_4BPP	0xCA00
@@ -631,6 +645,7 @@ typedef struct _RDPDR_PARALLEL RDPDR_PARALLEL;
 #define FreeRDP_VmConnectMode                                      (1102)
 #define FreeRDP_NtlmSamFile                                        (1103)
 #define FreeRDP_FIPSMode                                           (1104)
+#define FreeRDP_TlsSecLevel                                        (1105)
 #define FreeRDP_MstscCookieMode                                    (1152)
 #define FreeRDP_CookieMaxLength                                    (1153)
 #define FreeRDP_PreconnectionId                                    (1154)
@@ -671,6 +686,7 @@ typedef struct _RDPDR_PARALLEL RDPDR_PARALLEL;
 #define FreeRDP_PrivateKeyContent                                  (1417)
 #define FreeRDP_RdpKeyContent                                      (1418)
 #define FreeRDP_AutoAcceptCertificate                              (1419)
+#define FreeRDP_AutoDenyCertificate                                (1420)
 #define FreeRDP_Workarea                                           (1536)
 #define FreeRDP_Fullscreen                                         (1537)
 #define FreeRDP_PercentScreen                                      (1538)
@@ -698,6 +714,7 @@ typedef struct _RDPDR_PARALLEL RDPDR_PARALLEL;
 #define FreeRDP_AuthenticationOnly                                 (1603)
 #define FreeRDP_CredentialsFromStdin                               (1604)
 #define FreeRDP_UnmapButtons                                       (1605)
+#define FreeRDP_OldLicenseBehaviour                                (1606)
 #define FreeRDP_ComputerName                                       (1664)
 #define FreeRDP_ConnectionFile                                     (1728)
 #define FreeRDP_AssistanceFile                                     (1729)
@@ -742,6 +759,7 @@ typedef struct _RDPDR_PARALLEL RDPDR_PARALLEL;
 #define FreeRDP_RemoteAppNumIconCaches                             (2122)
 #define FreeRDP_RemoteAppNumIconCacheEntries                       (2123)
 #define FreeRDP_RemoteAppLanguageBarSupported                      (2124)
+#define FreeRDP_RemoteWndSupportLevel                              (2125)
 #define FreeRDP_ReceivedCapabilities                               (2240)
 #define FreeRDP_ReceivedCapabilitiesSize                           (2241)
 #define FreeRDP_OsMajorType                                        (2304)
@@ -760,6 +778,7 @@ typedef struct _RDPDR_PARALLEL RDPDR_PARALLEL;
 #define FreeRDP_OrderSupport                                       (2432)
 #define FreeRDP_BitmapCacheV3Enabled                               (2433)
 #define FreeRDP_AltSecFrameMarkerSupport                           (2434)
+#define FreeRDP_AllowUnanouncedOrdersFromServer                    (2435)
 #define FreeRDP_BitmapCacheEnabled                                 (2497)
 #define FreeRDP_BitmapCacheVersion                                 (2498)
 #define FreeRDP_AllowCacheWaitingList                              (2499)
@@ -1062,7 +1081,8 @@ struct rdp_settings
 	ALIGN64 BOOL   VmConnectMode;                /* 1102 */
 	ALIGN64 char*  NtlmSamFile;                  /* 1103 */
 	ALIGN64 BOOL   FIPSMode;                     /* 1104 */
-	UINT64 padding1152[1152 - 1105]; /* 1105 */
+	ALIGN64 UINT32 TlsSecLevel;                  /* 1105 */
+	UINT64 padding1152[1152 - 1106]; /* 1106 */
 
 	/* Connection Cookie */
 	ALIGN64 BOOL   MstscCookieMode;      /* 1152 */
@@ -1121,7 +1141,8 @@ struct rdp_settings
 	ALIGN64 char*           PrivateKeyContent;             /* 1417 */
 	ALIGN64 char*           RdpKeyContent;                 /* 1418 */
 	ALIGN64 BOOL            AutoAcceptCertificate;         /* 1419 */
-	UINT64 padding1472[1472 - 1420]; /* 1420 */
+	ALIGN64 BOOL            AutoDenyCertificate;           /* 1420 */
+	UINT64 padding1472[1472 - 1421]; /* 1421 */
 	UINT64 padding1536[1536 - 1472]; /* 1472 */
 
 	/**
@@ -1160,7 +1181,8 @@ struct rdp_settings
 	ALIGN64 BOOL AuthenticationOnly;   /* 1603 */
 	ALIGN64 BOOL CredentialsFromStdin; /* 1604 */
 	ALIGN64 BOOL UnmapButtons;         /* 1605 */
-	UINT64 padding1664[1664 - 1606];   /* 1606 */
+	ALIGN64 BOOL OldLicenseBehaviour;  /* 1606 */
+	UINT64 padding1664[1664 - 1607];   /* 1607 */
 
 	/* Names */
 	ALIGN64 char* ComputerName; /* 1664 */
@@ -1234,7 +1256,8 @@ struct rdp_settings
 	ALIGN64 UINT32 RemoteAppNumIconCaches;            /* 2122 */
 	ALIGN64 UINT32 RemoteAppNumIconCacheEntries;      /* 2123 */
 	ALIGN64 BOOL   RemoteAppLanguageBarSupported;     /* 2124 */
-	UINT64 padding2176[2176 - 2125]; /* 2125 */
+	ALIGN64 UINT32 RemoteWndSupportLevel;             /* 2125 */
+	UINT64 padding2176[2176 - 2126]; /* 2126 */
 	UINT64 padding2240[2240 - 2176]; /* 2176 */
 
 	/**
@@ -1502,7 +1525,7 @@ struct rdp_settings
 	ALIGN64 BYTE*
 	SettingsModified;  /* byte array marking fields that have been modified from their default value */
 	ALIGN64 char* ActionScript;
-	ALIGN64 BOOL   Floatbar;
+	ALIGN64 DWORD  Floatbar;
 
 	#pragma region Myrtille
 
