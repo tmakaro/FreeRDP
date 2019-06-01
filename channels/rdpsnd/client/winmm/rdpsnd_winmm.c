@@ -128,6 +128,13 @@ static BOOL rdpsnd_winmm_open(rdpsndDevicePlugin* device, const AUDIO_FORMAT* fo
 	if (!rdpsnd_winmm_set_format(device, format, latency))
 		return FALSE;
 
+	#pragma region Myrtille
+
+	if (device->rdpcontext->settings->MyrtilleSessionId != NULL)
+		return TRUE;
+
+	#pragma endregion
+
 	mmResult = waveOutOpen(&winmm->hWaveOut, WAVE_MAPPER, &winmm->format,
 	                       (DWORD_PTR) rdpsnd_winmm_callback_function, (DWORD_PTR) winmm, CALLBACK_FUNCTION);
 
@@ -185,6 +192,13 @@ static BOOL rdpsnd_winmm_format_supported(rdpsndDevicePlugin* device, const AUDI
 
 	if (rdpsnd_winmm_convert_format(format, &out))
 	{
+		#pragma region Myrtille
+
+		if (device->rdpcontext->settings->MyrtilleSessionId != NULL)
+			return TRUE;
+
+		#pragma endregion
+
 		result = waveOutOpen(NULL, WAVE_MAPPER, &out, 0, 0, WAVE_FORMAT_QUERY);
 
 		if (result == MMSYSERR_NOERROR)
@@ -233,6 +247,13 @@ static UINT rdpsnd_winmm_play(rdpsndDevicePlugin* device, const BYTE* data, size
 	LPWAVEHDR lpWaveHdr;
 	rdpsndWinmmPlugin* winmm = (rdpsndWinmmPlugin*) device;
 
+	#pragma region Myrtille
+
+	if (device->rdpcontext->settings->MyrtilleSessionId == NULL)
+	{
+
+	#pragma endregion
+
 	if (!winmm->hWaveOut)
 		return 0;
 
@@ -265,6 +286,17 @@ static UINT rdpsnd_winmm_play(rdpsndDevicePlugin* device, const BYTE* data, size
 		free(lpWaveHdr);
 		return 0;
 	}
+
+	#pragma region Myrtille
+
+	}
+	else
+	{
+		RDP_CLIENT_ENTRY_POINTS* pEntryPoints = device->rdpcontext->instance->pClientEntryPoints;
+		IFCALL(pEntryPoints->ClientAudio, device->rdpcontext, data, size);
+	}
+
+	#pragma endregion
 
 	return 10; /* TODO: Get real latencry in [ms] */
 }
@@ -301,6 +333,12 @@ UINT freerdp_rdpsnd_client_subsystem_entry(PFREERDP_RDPSND_DEVICE_ENTRY_POINTS p
 	winmm->device.Play = rdpsnd_winmm_play;
 	winmm->device.Close = rdpsnd_winmm_close;
 	winmm->device.Free = rdpsnd_winmm_free;
+
+	#pragma region Myrtille
+
+	winmm->device.rdpcontext = pEntryPoints->rdpcontext;
+
+	#pragma endregion
 
 	args = pEntryPoints->args;
 	rdpsnd_winmm_parse_addin_args((rdpsndDevicePlugin*) winmm, args);

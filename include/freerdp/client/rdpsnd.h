@@ -51,6 +51,13 @@ struct rdpsnd_device_plugin
 	pcStart Start;
 	pcClose Close;
 	pcFree Free;
+
+	#pragma region Myrtille
+
+	// have the rdp device aware of the rdp context
+	rdpContext* rdpcontext;
+
+	#pragma endregion
 };
 
 #define RDPSND_DEVICE_EXPORT_FUNC_NAME "freerdp_rdpsnd_client_subsystem_entry"
@@ -62,6 +69,12 @@ struct _FREERDP_RDPSND_DEVICE_ENTRY_POINTS
 	rdpsndPlugin* rdpsnd;
 	PREGISTERRDPSNDDEVICE pRegisterRdpsndDevice;
 	ADDIN_ARGV* args;
+
+	#pragma region Myrtille
+
+	rdpContext* rdpcontext;
+
+	#pragma endregion
 };
 typedef struct _FREERDP_RDPSND_DEVICE_ENTRY_POINTS FREERDP_RDPSND_DEVICE_ENTRY_POINTS;
 typedef FREERDP_RDPSND_DEVICE_ENTRY_POINTS* PFREERDP_RDPSND_DEVICE_ENTRY_POINTS;

@@ -663,6 +663,12 @@ static UINT rdpsnd_load_device_plugin(rdpsndPlugin* rdpsnd, const char* name,
 	entryPoints.pRegisterRdpsndDevice = rdpsnd_register_device_plugin;
 	entryPoints.args = args;
 
+	#pragma region Myrtille
+
+	entryPoints.rdpcontext = rdpsnd->rdpcontext;
+
+	#pragma endregion
+
 	if ((error = entry(&entryPoints)))
 		WLog_ERR(TAG, "%s entry returns error %"PRIu32"", name, error);
 
