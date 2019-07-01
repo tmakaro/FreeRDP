@@ -234,11 +234,12 @@ BOOL resolve_hostname_ip(rdpSettings* settings)
 		// ipv6
 		else if (addr->ai_family == AF_INET6)
 		{
+			sockaddr_ipv6 = (struct sockaddr_in6*)addr->ai_addr;
+
 			// bypass link-local ipv6
-			if (addr->ai_next != NULL && addr->ai_next->ai_family == AF_INET6)
+			if (IN6_IS_ADDR_LINKLOCAL(&(sockaddr_ipv6->sin6_addr)))
 				continue;
 
-			sockaddr_ipv6 = (struct sockaddr_in6*)addr->ai_addr;
 			char ipAddress[INET6_ADDRSTRLEN + 1];
 			if (inet_ntop(sockaddr_ipv6->sin6_family, &sockaddr_ipv6->sin6_addr, ipAddress, sizeof(ipAddress)))
 			{
