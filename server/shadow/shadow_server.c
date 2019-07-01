@@ -70,6 +70,10 @@ static int shadow_server_print_command_line_help(int argc, char** argv)
 	char* str;
 	int length;
 	COMMAND_LINE_ARGUMENT_A* arg;
+
+	if (argc < 1)
+		return -1;
+
 	WLog_INFO(TAG, "Usage: %s [options]", argv[0]);
 	WLog_INFO(TAG, "");
 	WLog_INFO(TAG, "Syntax:");
@@ -134,6 +138,8 @@ static int shadow_server_print_command_line_help(int argc, char** argv)
 int shadow_server_command_line_status_print(rdpShadowServer* server, int argc, char** argv,
         int status)
 {
+	WINPR_UNUSED(server);
+
 	if (status == COMMAND_LINE_STATUS_PRINT_VERSION)
 	{
 		WLog_INFO(TAG, "FreeRDP version %s (git %s)", FREERDP_VERSION_FULL, GIT_REVISION);
@@ -337,7 +343,7 @@ int shadow_server_parse_command_line(rdpShadowServer* server, int argc, char** a
 		}
 		CommandLineSwitchCase(arg, "sam-file")
 		{
-			freerdp_set_param_string(settings, FreeRDP_NtlmSamFile, arg->Value);
+			freerdp_settings_set_string(settings, FreeRDP_NtlmSamFile, arg->Value);
 		}
 		CommandLineSwitchDefault(arg)
 		{

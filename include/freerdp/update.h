@@ -252,6 +252,12 @@ struct rdp_update
 	BOOL combineUpdates;
 	rdpBounds currentBounds;
 	rdpBounds previousBounds;
+	CRITICAL_SECTION mux;
+
+	/* if autoCalculateBitmapData is set to TRUE, the server automatically 
+	 * fills BITMAP_DATA struct members: flags, cbCompMainBodySize and cbCompFirstRowSize.
+	*/
+	BOOL autoCalculateBitmapData;
 };
 
 #endif /* FREERDP_UPDATE_H */

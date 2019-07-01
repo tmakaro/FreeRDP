@@ -213,6 +213,7 @@ static void shadow_client_context_free(freerdp_peer* peer,
                                        rdpShadowClient* client)
 {
 	rdpShadowServer* server = client->server;
+	WINPR_UNUSED(peer);
 	ArrayList_Remove(server->clients, (void*) client);
 
 	if (client->encoder)
@@ -395,7 +396,7 @@ static INLINE void shadow_client_convert_rects(rdpShadowClient* client,
 {
 	if (client->server->shareSubRect)
 	{
-		int i = 0;
+		UINT32 i = 0;
 		UINT16 offsetX = client->server->subRect.left;
 		UINT16 offsetY = client->server->subRect.top;
 
@@ -604,12 +605,82 @@ static BOOL shadow_client_surface_frame_acknowledge(rdpShadowClient* client,
 }
 
 static UINT shadow_client_rdpgfx_frame_acknowledge(RdpgfxServerContext* context,
-        RDPGFX_FRAME_ACKNOWLEDGE_PDU* frameAcknowledge)
+        const RDPGFX_FRAME_ACKNOWLEDGE_PDU* frameAcknowledge)
 {
 	rdpShadowClient* client = (rdpShadowClient*)context->custom;
 	shadow_client_common_frame_acknowledge(client, frameAcknowledge->frameId);
 	client->encoder->queueDepth = frameAcknowledge->queueDepth;
 	return CHANNEL_RC_OK;
+}
+
+static BOOL shadow_are_caps_filtered(const rdpSettings* settings, UINT32 caps)
+{
+	const UINT32 filter = settings->GfxCapsFilter;
+	const UINT32 capList[] =
+	{
+		RDPGFX_CAPVERSION_8,
+		RDPGFX_CAPVERSION_81,
+		RDPGFX_CAPVERSION_10,
+		RDPGFX_CAPVERSION_101,
+		RDPGFX_CAPVERSION_102,
+		RDPGFX_CAPVERSION_103,
+		RDPGFX_CAPVERSION_104,
+		RDPGFX_CAPVERSION_105,
+		RDPGFX_CAPVERSION_106
+	};
+	UINT32 x;
+
+	for (x = 0; x < ARRAYSIZE(capList); x++)
+	{
+		if (caps == capList[x])
+			return (filter & (1 << x)) != 0;
+	}
+
+	return TRUE;
+}
+
+static BOOL shadow_client_caps_test_version(RdpgfxServerContext* context,
+        const RDPGFX_CAPSET* capsSets,
+        UINT32 capsSetCount,
+        UINT32 capsVersion, UINT* rc)
+{
+	UINT32 flags = 0;
+	UINT32 index;
+	rdpSettings* settings;
+	settings = context->rdpcontext->settings;
+
+	if (shadow_are_caps_filtered(settings, capsVersion))
+		return FALSE;
+
+	for (index = 0; index < capsSetCount; index++)
+	{
+		const RDPGFX_CAPSET* currentCaps = &capsSets[index];
+
+		if (currentCaps->version == capsVersion)
+		{
+			RDPGFX_CAPSET caps = *currentCaps;
+			RDPGFX_CAPS_CONFIRM_PDU pdu;
+			pdu.capsSet = &caps;
+
+			if (settings)
+			{
+				flags = pdu.capsSet->flags;
+				settings->GfxSmallCache = (flags & RDPGFX_CAPS_FLAG_SMALL_CACHE);
+#ifndef WITH_GFX_H264
+				settings->GfxAVC444v2 = settings->GfxAVC444 = settings->GfxH264 = FALSE;
+				pdu.capsSet->flags |= RDPGFX_CAPS_FLAG_AVC_DISABLED;
+#else
+				settings->GfxAVC444v2 = settings->GfxAVC444 = settings->GfxH264 = !(flags &
+				                        RDPGFX_CAPS_FLAG_AVC_DISABLED);
+#endif
+			}
+
+			*rc = context->CapsConfirm(context, &pdu);
+			return TRUE;
+		}
+	}
+
+	return FALSE;
 }
 
 /**
@@ -618,140 +689,95 @@ static UINT shadow_client_rdpgfx_frame_acknowledge(RdpgfxServerContext* context,
  * @return 0 on success, otherwise a Win32 error code
  */
 static UINT shadow_client_rdpgfx_caps_advertise(RdpgfxServerContext* context,
-        RDPGFX_CAPS_ADVERTISE_PDU* capsAdvertise)
+        const RDPGFX_CAPS_ADVERTISE_PDU* capsAdvertise)
 {
 	UINT16 index;
+	UINT rc;
 	rdpSettings* settings = context->rdpcontext->settings;
 	UINT32 flags = 0;
 	/* Request full screen update for new gfx channel */
 	shadow_client_refresh_rect((rdpShadowClient*)context->custom, 0, NULL);
 
-	for (index = 0; index < capsAdvertise->capsSetCount; index++)
+	if (shadow_client_caps_test_version(context, capsAdvertise->capsSets, capsAdvertise->capsSetCount,
+	                                    RDPGFX_CAPVERSION_106, &rc))
+		return rc;
+
+	if (shadow_client_caps_test_version(context, capsAdvertise->capsSets, capsAdvertise->capsSetCount,
+	                                    RDPGFX_CAPVERSION_105, &rc))
+		return rc;
+
+	if (shadow_client_caps_test_version(context, capsAdvertise->capsSets, capsAdvertise->capsSetCount,
+	                                    RDPGFX_CAPVERSION_104, &rc))
+		return rc;
+
+	if (shadow_client_caps_test_version(context, capsAdvertise->capsSets, capsAdvertise->capsSetCount,
+	                                    RDPGFX_CAPVERSION_103, &rc))
+		return rc;
+
+	if (shadow_client_caps_test_version(context, capsAdvertise->capsSets, capsAdvertise->capsSetCount,
+	                                    RDPGFX_CAPVERSION_102, &rc))
+		return rc;
+
+	if (shadow_client_caps_test_version(context, capsAdvertise->capsSets, capsAdvertise->capsSetCount,
+	                                    RDPGFX_CAPVERSION_101, &rc))
+		return rc;
+
+	if (shadow_client_caps_test_version(context, capsAdvertise->capsSets, capsAdvertise->capsSetCount,
+	                                    RDPGFX_CAPVERSION_10, &rc))
+		return rc;
+
+	if (!shadow_are_caps_filtered(settings, RDPGFX_CAPVERSION_81))
 	{
-		const RDPGFX_CAPSET* currentCaps = &capsAdvertise->capsSets[index];
-
-		if (currentCaps->version == RDPGFX_CAPVERSION_103)
+		for (index = 0; index < capsAdvertise->capsSetCount; index++)
 		{
-			RDPGFX_CAPSET caps = *currentCaps;
-			RDPGFX_CAPS_CONFIRM_PDU pdu;
-			pdu.capsSet = &caps;
+			const RDPGFX_CAPSET* currentCaps = &capsAdvertise->capsSets[index];
 
-			if (settings)
+			if (currentCaps->version == RDPGFX_CAPVERSION_81)
 			{
-				flags = pdu.capsSet->flags;
-				settings->GfxSmallCache = (flags & RDPGFX_CAPS_FLAG_SMALL_CACHE);
-#ifndef WITH_GFX_H264
-				settings->GfxAVC444v2 = settings->GfxAVC444 = settings->GfxH264 = FALSE;
-				pdu.capsSet->flags |= RDPGFX_CAPS_FLAG_AVC_DISABLED;
-#else
-				settings->GfxAVC444v2 = settings->GfxAVC444 = settings->GfxH264 = !(flags &
-				                        RDPGFX_CAPS_FLAG_AVC_DISABLED);
-#endif
-			}
+				RDPGFX_CAPSET caps = *currentCaps;
+				RDPGFX_CAPS_CONFIRM_PDU pdu;
+				pdu.capsSet = &caps;
 
-			return context->CapsConfirm(context, &pdu);
+				if (settings)
+				{
+					flags = pdu.capsSet->flags;
+					settings->GfxAVC444v2 = settings->GfxAVC444 = FALSE;
+					settings->GfxThinClient = (flags & RDPGFX_CAPS_FLAG_THINCLIENT);
+					settings->GfxSmallCache = (flags & RDPGFX_CAPS_FLAG_SMALL_CACHE);
+#ifndef WITH_GFX_H264
+					settings->GfxH264 = FALSE;
+					pdu.capsSet->flags &= ~RDPGFX_CAPS_FLAG_AVC420_ENABLED;
+#else
+					settings->GfxH264 = (flags & RDPGFX_CAPS_FLAG_AVC420_ENABLED);
+#endif
+				}
+
+				return context->CapsConfirm(context, &pdu);
+			}
 		}
 	}
 
-	for (index = 0; index < capsAdvertise->capsSetCount; index++)
+	if (!shadow_are_caps_filtered(settings, RDPGFX_CAPVERSION_8))
 	{
-		const RDPGFX_CAPSET* currentCaps = &capsAdvertise->capsSets[index];
-
-		if (currentCaps->version == RDPGFX_CAPVERSION_102)
+		for (index = 0; index < capsAdvertise->capsSetCount; index++)
 		{
-			RDPGFX_CAPSET caps = *currentCaps;
-			RDPGFX_CAPS_CONFIRM_PDU pdu;
-			pdu.capsSet = &caps;
+			const RDPGFX_CAPSET* currentCaps = &capsAdvertise->capsSets[index];
 
-			if (settings)
+			if (currentCaps->version == RDPGFX_CAPVERSION_8)
 			{
-				flags = pdu.capsSet->flags;
-				settings->GfxSmallCache = (flags & RDPGFX_CAPS_FLAG_SMALL_CACHE);
-#ifndef WITH_GFX_H264
-				settings->GfxAVC444v2 = settings->GfxAVC444 = settings->GfxH264 = FALSE;
-				pdu.capsSet->flags |= RDPGFX_CAPS_FLAG_AVC_DISABLED;
-#else
-				settings->GfxAVC444v2 = settings->GfxAVC444 = settings->GfxH264 = !(flags &
-				                        RDPGFX_CAPS_FLAG_AVC_DISABLED);
-#endif
+				RDPGFX_CAPSET caps = *currentCaps;
+				RDPGFX_CAPS_CONFIRM_PDU pdu;
+				pdu.capsSet = &caps;
+
+				if (settings)
+				{
+					flags = pdu.capsSet->flags;
+					settings->GfxThinClient = (flags & RDPGFX_CAPS_FLAG_THINCLIENT);
+					settings->GfxSmallCache = (flags & RDPGFX_CAPS_FLAG_SMALL_CACHE);
+				}
+
+				return context->CapsConfirm(context, &pdu);
 			}
-
-			return context->CapsConfirm(context, &pdu);
-		}
-	}
-
-	for (index = 0; index < capsAdvertise->capsSetCount; index++)
-	{
-		const RDPGFX_CAPSET* currentCaps = &capsAdvertise->capsSets[index];
-
-		if (currentCaps->version == RDPGFX_CAPVERSION_10)
-		{
-			RDPGFX_CAPSET caps = *currentCaps;
-			RDPGFX_CAPS_CONFIRM_PDU pdu;
-			pdu.capsSet = &caps;
-
-			if (settings)
-			{
-				flags = pdu.capsSet->flags;
-				settings->GfxSmallCache = (flags & RDPGFX_CAPS_FLAG_SMALL_CACHE);
-#ifndef WITH_GFX_H264
-				settings->GfxAVC444v2 = settings->GfxAVC444 = settings->GfxH264 = FALSE;
-				pdu.capsSet->flags |= RDPGFX_CAPS_FLAG_AVC_DISABLED;
-#else
-				settings->GfxAVC444 = settings->GfxH264 = !(flags & RDPGFX_CAPS_FLAG_AVC_DISABLED);
-#endif
-			}
-
-			return context->CapsConfirm(context, &pdu);
-		}
-	}
-
-	for (index = 0; index < capsAdvertise->capsSetCount; index++)
-	{
-		const RDPGFX_CAPSET* currentCaps = &capsAdvertise->capsSets[index];
-
-		if (currentCaps->version == RDPGFX_CAPVERSION_81)
-		{
-			RDPGFX_CAPSET caps = *currentCaps;
-			RDPGFX_CAPS_CONFIRM_PDU pdu;
-			pdu.capsSet = &caps;
-
-			if (settings)
-			{
-				flags = pdu.capsSet->flags;
-				settings->GfxAVC444v2 = settings->GfxAVC444 = FALSE;
-				settings->GfxThinClient = (flags & RDPGFX_CAPS_FLAG_THINCLIENT);
-				settings->GfxSmallCache = (flags & RDPGFX_CAPS_FLAG_SMALL_CACHE);
-#ifndef WITH_GFX_H264
-				settings->GfxH264 = FALSE;
-				pdu.capsSet->flags &= ~RDPGFX_CAPS_FLAG_AVC420_ENABLED;
-#else
-				settings->GfxH264 = (flags & RDPGFX_CAPS_FLAG_AVC420_ENABLED);
-#endif
-			}
-
-			return context->CapsConfirm(context, &pdu);
-		}
-	}
-
-	for (index = 0; index < capsAdvertise->capsSetCount; index++)
-	{
-		const RDPGFX_CAPSET* currentCaps = &capsAdvertise->capsSets[index];
-
-		if (currentCaps->version == RDPGFX_CAPVERSION_8)
-		{
-			RDPGFX_CAPSET caps = *currentCaps;
-			RDPGFX_CAPS_CONFIRM_PDU pdu;
-			pdu.capsSet = &caps;
-
-			if (settings)
-			{
-				flags = pdu.capsSet->flags;
-				settings->GfxThinClient = (flags & RDPGFX_CAPS_FLAG_THINCLIENT);
-				settings->GfxSmallCache = (flags & RDPGFX_CAPS_FLAG_SMALL_CACHE);
-			}
-
-			return context->CapsConfirm(context, &pdu);
 		}
 	}
 
@@ -1069,7 +1095,8 @@ static BOOL shadow_client_send_bitmap_update(rdpShadowClient* client,
 	BOOL ret = TRUE;
 	BYTE* data;
 	BYTE* buffer;
-	int yIdx, xIdx, k;
+	size_t k;
+	int yIdx, xIdx;
 	int rows, cols;
 	UINT32 DstSize;
 	UINT32 SrcFormat;
@@ -1158,11 +1185,11 @@ static BOOL shadow_client_send_bitmap_update(rdpShadowClient* client,
 			bitmap->destLeft = nXSrc + (xIdx * 64);
 			bitmap->destTop = nYSrc + (yIdx * 64);
 
-			if ((bitmap->destLeft + bitmap->width) > (nXSrc + nWidth))
-				bitmap->width = (nXSrc + nWidth) - bitmap->destLeft;
+			if ((INT64)(bitmap->destLeft + bitmap->width) > (nXSrc + nWidth))
+				bitmap->width = (UINT32)(nXSrc + nWidth) - bitmap->destLeft;
 
-			if ((bitmap->destTop + bitmap->height) > (nYSrc + nHeight))
-				bitmap->height = (nYSrc + nHeight) - bitmap->destTop;
+			if ((INT64)(bitmap->destTop + bitmap->height) > (nYSrc + nHeight))
+				bitmap->height = (UINT32)(nYSrc + nHeight) - bitmap->destTop;
 
 			bitmap->destRight = bitmap->destLeft + bitmap->width - 1;
 			bitmap->destBottom = bitmap->destTop + bitmap->height - 1;
@@ -1486,6 +1513,7 @@ static INLINE BOOL shadow_client_no_surface_update(rdpShadowClient* client,
 {
 	rdpShadowServer* server;
 	rdpShadowSurface* surface;
+	WINPR_UNUSED(pStatus);
 	server = client->server;
 	surface = client->inLobby ? server->lobby : server->surface;
 	return shadow_client_surface_update(client, &(surface->invalidRegion));

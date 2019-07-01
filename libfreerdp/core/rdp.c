@@ -361,10 +361,10 @@ BOOL rdp_read_header(rdpRdp* rdp, wStream* s, UINT16* length, UINT16* channelId)
 
 	MCSPDU = domainMCSPDU;
 
-	if (*length < 8)
+	if (*length < 8U)
 		return FALSE;
 
-	if ((*length - 8) > Stream_GetRemainingLength(s))
+	if ((*length - 8U) > Stream_GetRemainingLength(s))
 		return FALSE;
 
 	if (MCSPDU == DomainMCSPDU_DisconnectProviderUltimatum)
@@ -805,29 +805,6 @@ static BOOL rdp_recv_monitor_layout_pdu(rdpRdp* rdp, wStream* s)
 	IFCALLRET(rdp->update->RemoteMonitors, ret, rdp->context, monitorCount, monitorDefArray);
 	free(monitorDefArray);
 	return ret;
-}
-
-BOOL rdp_write_monitor_layout_pdu(wStream* s, UINT32 monitorCount,
-                                  const rdpMonitor* monitorDefArray)
-{
-	UINT32 index;
-	const rdpMonitor* monitor;
-
-	if (!Stream_EnsureRemainingCapacity(s, 4 + (monitorCount * 20)))
-		return FALSE;
-
-	Stream_Write_UINT32(s, monitorCount); /* monitorCount (4 bytes) */
-
-	for (index = 0, monitor = monitorDefArray; index < monitorCount; index++, monitor++)
-	{
-		Stream_Write_UINT32(s, monitor->x); /* left (4 bytes) */
-		Stream_Write_UINT32(s, monitor->y); /* top (4 bytes) */
-		Stream_Write_UINT32(s, monitor->x + monitor->width - 1); /* right (4 bytes) */
-		Stream_Write_UINT32(s, monitor->y + monitor->height - 1); /* bottom (4 bytes) */
-		Stream_Write_UINT32(s, monitor->is_primary ? 0x01 : 0x00); /* flags (4 bytes) */
-	}
-
-	return TRUE;
 }
 
 int rdp_recv_data_pdu(rdpRdp* rdp, wStream* s)

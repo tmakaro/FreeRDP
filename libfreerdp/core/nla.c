@@ -1276,7 +1276,7 @@ SECURITY_STATUS nla_decrypt_public_key_echo(rdpNla* nla)
 	ntlm = (_tcsncmp(nla->packageName,  NTLM_SSP_NAME, ARRAYSIZE(NTLM_SSP_NAME)) == 0);
 	signature_length = nla->pubKeyAuth.cbBuffer - nla->PublicKey.cbBuffer;
 
-	if ((signature_length < 0) || (signature_length > nla->ContextSizes.cbSecurityTrailer))
+	if ((signature_length < 0) || ((UINT32)signature_length > nla->ContextSizes.cbSecurityTrailer))
 	{
 		WLog_ERR(TAG, "unexpected pubKeyAuth buffer size: %"PRIu32"", nla->pubKeyAuth.cbBuffer);
 		goto fail;
@@ -2467,4 +2467,26 @@ BOOL nla_set_service_principal(rdpNla* nla, LPSTR principal)
 
 	nla->ServicePrincipalName = principal;
 	return TRUE;
+}
+
+BOOL nla_impersonate(rdpNla* nla)
+{
+	if (!nla)
+		return FALSE;
+
+	if (!nla->table || !nla->table->ImpersonateSecurityContext)
+		return FALSE;
+
+	return (nla->table->ImpersonateSecurityContext(&nla->context) == SEC_E_OK);
+}
+
+BOOL nla_revert_to_self(rdpNla* nla)
+{
+	if (!nla)
+		return FALSE;
+
+	if (!nla->table || !nla->table->RevertSecurityContext)
+		return FALSE;
+
+	return (nla->table->RevertSecurityContext(&nla->context) == SEC_E_OK);
 }

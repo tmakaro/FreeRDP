@@ -233,6 +233,7 @@ DWORD WINAPI mac_client_thread(void* param)
 		}
 
 	disconnect:
+		[view setIs_connected:0];
 		freerdp_disconnect(instance);
 
 		if (settings->AsyncInput && inputThread)
@@ -408,9 +409,6 @@ DWORD WINAPI mac_client_thread(void* param)
 	if (!self.is_connected)
 		return;
 
-	NSPoint loc = [event locationInWindow];
-	int x = (int) loc.x;
-	int y = (int) loc.y;
 	float dx = [event deltaX];
 	float dy = [event deltaY];
 	/* 1 event = 120 units */
@@ -436,6 +434,9 @@ DWORD WINAPI mac_client_thread(void* param)
 		return;
 
 	/* send out all accumulated rotations */
+	if (units > WheelRotationMask)
+		units = WheelRotationMask;
+
 	while (units != 0)
 	{
 		/* limit to maximum value in WheelRotationMask (9bit signed value) */
@@ -794,6 +795,9 @@ DWORD fixKeyCode(DWORD keyCode, unichar keyChar, enum APPLE_KEYBOARD_TYPE type)
 
 - (void)resume
 {
+	if (!self.is_connected)
+		return;
+
 	dispatch_async(dispatch_get_main_queue(), ^
 	{
 		self->pasteboard_timer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(onPasteboardTimerFired:) userInfo:nil repeats:YES];
@@ -930,8 +934,15 @@ BOOL mac_post_connect(freerdp* instance)
 
 void mac_post_disconnect(freerdp*	instance)
 {
+	mfContext* mfc;
+	MRDPView* view;
 	if (!instance || !instance->context)
 		return;
+
+	mfc = (mfContext*) instance->context;
+	view = (MRDPView*) mfc->view;
+
+	[view pause];
 
 	PubSub_UnsubscribeChannelConnected(instance->context->pubSub, mac_OnChannelConnectedEventHandler);
 	PubSub_UnsubscribeChannelDisconnected(instance->context->pubSub,

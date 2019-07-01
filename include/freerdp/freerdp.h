@@ -453,6 +453,7 @@ FREERDP_API int freerdp_message_queue_process_pending_messages(
 
 FREERDP_API UINT32 freerdp_error_info(freerdp* instance);
 FREERDP_API void freerdp_set_error_info(rdpRdp* rdp, UINT32 error);
+FREERDP_API BOOL freerdp_send_error_info(rdpRdp* rdp);
 
 FREERDP_API void freerdp_get_version(int* major, int* minor, int* revision);
 FREERDP_API const char* freerdp_get_version_string(void);
@@ -479,6 +480,9 @@ FREERDP_API const char* freerdp_get_logon_error_info_data(UINT32 data);
 FREERDP_API ULONG freerdp_get_transport_sent(rdpContext* context,
         BOOL resetCount);
 
+FREERDP_API BOOL freerdp_nla_impersonate(rdpContext* context);
+FREERDP_API BOOL freerdp_nla_revert_to_self(rdpContext* context);
+
 FREERDP_API void clearChannelError(rdpContext* context);
 FREERDP_API HANDLE getChannelErrorEventHandle(rdpContext* context);
 FREERDP_API UINT getChannelError(rdpContext* context);
@@ -486,6 +490,8 @@ FREERDP_API const char* getChannelErrorDescription(rdpContext* context);
 FREERDP_API void setChannelError(rdpContext* context, UINT errorNum,
                                  char* description);
 FREERDP_API BOOL checkChannelErrorEvent(rdpContext* context);
+
+FREERDP_API const char* freerdp_nego_get_routing_token(rdpContext* context, DWORD* length);
 
 #ifdef __cplusplus
 }

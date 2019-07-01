@@ -270,12 +270,16 @@ BOOL freerdp_connect(freerdp* instance)
 			Stream_SetLength(s, record.length);
 			Stream_SetPosition(s, 0);
 
-			if (!update->BeginPaint(update->context))
+			if (!update_begin_paint(update))
 				status = FALSE;
-			else if (update_recv_surfcmds(update, s) < 0)
-				status = FALSE;
-			else if (!update->EndPaint(update->context))
-				status = FALSE;
+			else
+			{
+				if (update_recv_surfcmds(update, s) < 0)
+					status = FALSE;
+
+				if (!update_end_paint(update))
+					status = FALSE;
+			}
 
 			Stream_Release(s);
 		}
@@ -785,6 +789,14 @@ void freerdp_set_error_info(rdpRdp* rdp, UINT32 error)
 	rdp_set_error_info(rdp, error);
 }
 
+BOOL freerdp_send_error_info(rdpRdp* rdp)
+{
+	if (!rdp)
+		return FALSE;
+
+	return rdp_send_error_info(rdp);
+}
+
 UINT32 freerdp_get_last_error(rdpContext* context)
 {
 	return context->LastError;
@@ -1001,6 +1013,40 @@ ULONG freerdp_get_transport_sent(rdpContext* context, BOOL resetCount)
 	return written;
 }
 
+BOOL freerdp_nla_impersonate(rdpContext* context)
+{
+	rdpNla* nla;
+
+	if (!context)
+		return FALSE;
+
+	if (!context->rdp)
+		return FALSE;
+
+	if (!context->rdp->transport)
+		return FALSE;
+
+	nla = context->rdp->transport->nla;
+	return nla_impersonate(nla);
+}
+
+BOOL freerdp_nla_revert_to_self(rdpContext* context)
+{
+	rdpNla* nla;
+
+	if (!context)
+		return FALSE;
+
+	if (!context->rdp)
+		return FALSE;
+
+	if (!context->rdp->transport)
+		return FALSE;
+
+	nla = context->rdp->transport->nla;
+	return nla_revert_to_self(nla);
+}
+
 HANDLE getChannelErrorEventHandle(rdpContext* context)
 {
 	return context->channelErrorEvent;
@@ -1045,4 +1091,12 @@ void setChannelError(rdpContext* context, UINT errorNum, char* description)
 	context->channelErrorNum = errorNum;
 	strncpy(context->errorDescription, description, 499);
 	SetEvent(context->channelErrorEvent);
+}
+
+const char* freerdp_nego_get_routing_token(rdpContext* context, DWORD* length)
+{
+	if (!context || !context->rdp)
+		return NULL;
+
+	return (const char*)nego_get_routing_token(context->rdp->nego, length);
 }

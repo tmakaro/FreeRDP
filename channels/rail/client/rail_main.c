@@ -76,13 +76,15 @@ static UINT rail_send(railPlugin* rail, wStream* s)
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-UINT rail_send_channel_data(railPlugin* rail, void* data, size_t length)
+UINT rail_send_channel_data(railPlugin* rail, wStream* src)
 {
-	wStream* s = NULL;
+	wStream* s;
+	size_t length;
 
-	if (!rail || !data)
+	if (!rail || !src)
 		return ERROR_INVALID_PARAMETER;
 
+	length = Stream_GetPosition(src);
 	s = Stream_New(NULL, length);
 
 	if (!s)
@@ -91,7 +93,7 @@ UINT rail_send_channel_data(railPlugin* rail, void* data, size_t length)
 		return CHANNEL_RC_NO_MEMORY;
 	}
 
-	Stream_Write(s, data, length);
+	Stream_Write(s, Stream_Buffer(src), length);
 	return rail_send(rail, s);
 }
 
@@ -128,7 +130,7 @@ static UINT rail_client_execute(RailClientContext* context,
 	if (strnlen(exeOrFile, MAX_PATH) >= 2)
 	{
 		if (strncmp(exeOrFile, "||", 2) != 0)
-			flags |= RAIL_EXEC_FLAG_FILE;
+			flags |= TS_RAIL_EXEC_FLAG_FILE;
 	}
 
 	if (!rail_string_to_unicode_string(exec->RemoteApplicationProgram,
@@ -201,9 +203,18 @@ static UINT rail_send_client_sysparam(RailClientContext* context,
 			length += sysparam->highContrast.colorSchemeLength + 10;
 			break;
 
-		default:
-			length += 8;
+		case SPI_SETFILTERKEYS:
+			length += 20;
 			break;
+
+		case SPI_SETSTICKYKEYS:
+		case SPI_SETCARETWIDTH:
+		case SPI_SETTOGGLEKEYS:
+			length += 4;
+			break;
+
+		default:
+			return ERROR_BAD_ARGUMENTS;
 	}
 
 	s = rail_pdu_init(length);
@@ -214,14 +225,14 @@ static UINT rail_send_client_sysparam(RailClientContext* context,
 		return CHANNEL_RC_NO_MEMORY;
 	}
 
-	if ((error = rail_write_client_sysparam_order(s, sysparam)))
+	if ((error = rail_write_client_sysparam_order(rail, s, sysparam)))
 	{
 		WLog_ERR(TAG, "rail_write_client_sysparam_order failed with error %"PRIu32"!", error);
 		Stream_Free(s, TRUE);
 		return error;
 	}
 
-	if ((error = rail_send_pdu(rail, s, RDP_RAIL_ORDER_SYSPARAM)))
+	if ((error = rail_send_pdu(rail, s, TS_RAIL_ORDER_SYSPARAM)))
 	{
 		WLog_ERR(TAG, "rail_send_pdu failed with error %"PRIu32"!", error);
 	}
@@ -393,7 +404,7 @@ static UINT rail_server_handshake(RailClientContext* context,
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-static UINT rail_client_handshake_ex(RailClientContext* context,
+static UINT rail_server_handshake_ex(RailClientContext* context,
                                      const RAIL_HANDSHAKE_EX_ORDER* handshakeEx)
 {
 	railPlugin* rail;
@@ -402,21 +413,7 @@ static UINT rail_client_handshake_ex(RailClientContext* context,
 		return ERROR_INVALID_PARAMETER;
 
 	rail = (railPlugin*) context->handle;
-	return rail_send_handshake_ex_order(rail, handshakeEx);
-}
-
-/**
- * Function description
- *
- * @return 0 on success, otherwise a Win32 error code
- */
-static UINT rail_server_handshake_ex(RailClientContext* context,
-                                     const RAIL_HANDSHAKE_EX_ORDER* handshakeEx)
-{
-	if (!context || !handshakeEx)
-		return ERROR_INVALID_PARAMETER;
-
-	return CHANNEL_RC_OK; /* stub - should be registered by client */
+	return CHANNEL_RC_OK;
 }
 
 /**
@@ -546,6 +543,18 @@ static UINT rail_server_language_bar_info(RailClientContext* context,
 	return CHANNEL_RC_OK; /* stub - should be registered by client */
 }
 
+static UINT rail_client_language_ime_info(RailClientContext* context,
+        const RAIL_LANGUAGEIME_INFO_ORDER* langImeInfo)
+{
+	railPlugin* rail;
+
+	if (!context || !langImeInfo)
+		return ERROR_INVALID_PARAMETER;
+
+	rail = (railPlugin*) context->handle;
+	return rail_send_client_languageime_info_order(rail, langImeInfo);
+}
+
 /**
  * Function description
  *
@@ -575,6 +584,30 @@ static UINT rail_client_get_appid_request(RailClientContext* context,
 
 	rail = (railPlugin*) context->handle;
 	return rail_send_client_get_appid_req_order(rail, getAppIdReq);
+}
+
+static UINT rail_client_cloak(RailClientContext* context,
+                              const RAIL_CLOAK* cloak)
+{
+	railPlugin* rail;
+
+	if (!context || !cloak || !context->handle)
+		return ERROR_INVALID_PARAMETER;
+
+	rail = (railPlugin*) context->handle;
+	return rail_send_client_order_cloak_order(rail, cloak);
+}
+
+static UINT rail_client_snap_arrange(RailClientContext* context,
+                                     const RAIL_SNAP_ARRANGE* snap)
+{
+	railPlugin* rail;
+
+	if (!context || !snap || !context->handle)
+		return ERROR_INVALID_PARAMETER;
+
+	rail = (railPlugin*) context->handle;
+	return rail_send_client_order_snap_arrange_order(rail, snap);
 }
 
 /**
@@ -917,7 +950,6 @@ BOOL VCAPITYPE VirtualChannelEntryEx(PCHANNEL_ENTRY_POINTS pEntryPoints, PVOID p
 		context->ClientSystemCommand = rail_client_system_command;
 		context->ClientHandshake = rail_client_handshake;
 		context->ServerHandshake = rail_server_handshake;
-		context->ClientHandshakeEx = rail_client_handshake_ex;
 		context->ServerHandshakeEx = rail_server_handshake_ex;
 		context->ClientNotifyEvent = rail_client_notify_event;
 		context->ClientWindowMove = rail_client_window_move;
@@ -927,9 +959,12 @@ BOOL VCAPITYPE VirtualChannelEntryEx(PCHANNEL_ENTRY_POINTS pEntryPoints, PVOID p
 		context->ClientSystemMenu = rail_client_system_menu;
 		context->ClientLanguageBarInfo = rail_client_language_bar_info;
 		context->ServerLanguageBarInfo = rail_server_language_bar_info;
+		context->ClientLanguageIMEInfo = rail_client_language_ime_info;
 		context->ServerExecuteResult = rail_server_execute_result;
 		context->ClientGetAppIdRequest = rail_client_get_appid_request;
 		context->ServerGetAppIdResponse = rail_server_get_appid_response;
+		context->ClientSnapArrange = rail_client_snap_arrange;
+		context->ClientCloak = rail_client_cloak;
 		rail->rdpcontext = pEntryPointsEx->context;
 		rail->context = context;
 		isFreerdp = TRUE;

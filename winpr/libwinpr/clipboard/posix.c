@@ -132,7 +132,7 @@ static BOOL decode_percent_encoded_byte(const char* str, const char* end, char* 
 {
 	BOOL valid = TRUE;
 
-	if ((end < str) || (end - str < strlen("%20")))
+	if ((end < str) || ((size_t)(end - str) < strlen("%20")))
 		return FALSE;
 
 	*value = 0;
@@ -244,7 +244,7 @@ static WCHAR* concat_remote_name(const WCHAR* dir, const WCHAR* file)
 	WCHAR* buffer = NULL;
 	len_dir = _wcslen(dir);
 	len_file = _wcslen(file);
-	buffer = calloc(len_dir + 1 + len_file + 1, sizeof(WCHAR));
+	buffer = calloc(len_dir + 1 + len_file + 2, sizeof(WCHAR));
 
 	if (!buffer)
 		return NULL;
@@ -418,17 +418,19 @@ static BOOL process_file_name(const char* local_name, wArrayList* files)
 
 static BOOL process_uri(const char* uri, size_t uri_len, wArrayList* files)
 {
+	const char prefix []= "file://";
 	BOOL result = FALSE;
 	char* name = NULL;
+	const size_t prefixLen = strnlen(prefix, sizeof(prefix));
 	WLog_VRB(TAG, "processing URI: %.*s", uri_len, uri);
 
-	if ((uri_len < strlen("file://")) || strncmp(uri, "file://", strlen("file://")))
+	if ((uri_len < prefixLen) || strncmp(uri, prefix, prefixLen))
 	{
 		WLog_ERR(TAG, "non-'file://' URI schemes are not supported");
 		goto out;
 	}
 
-	name = decode_percent_encoded_string(uri + strlen("file://"), uri_len - strlen("file://"));
+	name = decode_percent_encoded_string(uri + prefixLen, uri_len - prefixLen);
 
 	if (!name)
 		goto out;
@@ -573,6 +575,88 @@ static void* convert_uri_list_to_filedescriptors(wClipboard* clipboard, UINT32 f
 	return descriptors;
 }
 
+static void* convert_filedescriptors_to_uri_list(wClipboard* clipboard, UINT32 formatId,
+        const void* data, UINT32* pSize)
+{
+	const FILEDESCRIPTOR* descriptors;
+	UINT32 nrDescriptors = 0;
+	size_t count, x, alloc, pos, baseLength = 0;
+	const char* src = (const char*) data;
+	char* dst;
+
+	if (!clipboard || !data || !pSize)
+		return NULL;
+
+	if (*pSize < sizeof(UINT32))
+		return NULL;
+
+	if (clipboard->delegate.basePath)
+		baseLength = strnlen(clipboard->delegate.basePath, MAX_PATH);
+
+	if (baseLength < 1)
+		return NULL;
+
+	if (clipboard->delegate.ClientRequestFileSize)
+		nrDescriptors = (UINT32)(src[3] << 24) | (UINT32)(src[2] << 16) | (UINT32)(src[1] << 8) |
+		                (src[0] & 0xFF);
+
+	count = (*pSize - 4) / sizeof(FILEDESCRIPTOR);
+
+	if ((count < 1) || (count != nrDescriptors))
+		return NULL;
+
+	descriptors = (const FILEDESCRIPTOR*)&src[4];
+
+	if (formatId != ClipboardGetFormatId(clipboard, "FileGroupDescriptorW"))
+		return NULL;
+
+	alloc = 0;
+
+	/* Get total size of file names */
+	for (x = 0; x < count; x++)
+		alloc += _wcsnlen(descriptors[x].cFileName, ARRAYSIZE(descriptors[x].cFileName));
+
+	/* Append a prefix file:// and postfix \r\n for each file */
+	alloc += (sizeof("/\r\n") + baseLength) * count;
+	dst = calloc(alloc, sizeof(char));
+
+	if (!dst)
+		return NULL;
+
+	pos = 0;
+
+	for (x = 0; x < count; x++)
+	{
+		int rc;
+		const FILEDESCRIPTOR* cur = &descriptors[x];
+		size_t curLen = _wcsnlen(cur->cFileName, ARRAYSIZE(cur->cFileName));
+		char* curName = NULL;
+		rc = ConvertFromUnicode(CP_UTF8, 0, cur->cFileName, (int)curLen, &curName, 0, NULL, NULL);
+
+		if (rc != (int)curLen)
+		{
+			free(curName);
+			free(dst);
+			return NULL;
+		}
+
+		rc = _snprintf(&dst[pos], alloc - pos, "%s/%s\r\n", clipboard->delegate.basePath, curName);
+		free(curName);
+
+		if (rc < 0)
+		{
+			free(dst);
+			return NULL;
+		}
+
+		pos += (size_t)rc;
+	}
+
+	*pSize = (UINT32)alloc;
+	clipboard->fileListSequenceNumber = clipboard->sequenceNumber;
+	return dst;
+}
+
 static BOOL register_file_formats_and_synthesizers(wClipboard* clipboard)
 {
 	UINT32 file_group_format_id;
@@ -593,6 +677,11 @@ static BOOL register_file_formats_and_synthesizers(wClipboard* clipboard)
 	if (!ClipboardRegisterSynthesizer(clipboard,
 	                                  local_file_format_id, file_group_format_id,
 	                                  convert_uri_list_to_filedescriptors))
+		goto error_free_local_files;
+
+	if (!ClipboardRegisterSynthesizer(clipboard,
+	                                  file_group_format_id, local_file_format_id,
+	                                  convert_filedescriptors_to_uri_list))
 		goto error_free_local_files;
 
 	return TRUE;
@@ -687,13 +776,16 @@ static UINT posix_file_read_seek(struct posix_file* file, UINT64 offset)
 	 * an accurate account of the current file offset and do not call
 	 * lseek() if the client requests file content sequentially.
 	 */
-	if (file->offset == offset)
+	if (offset > INT64_MAX)
+		return ERROR_SEEK;
+
+	if (file->offset == (INT64)offset)
 		return NO_ERROR;
 
 	WLog_VRB(TAG, "file %d force seeking to %"PRIu64", current %"PRIu64, file->fd,
 	         offset, file->offset);
 
-	if (lseek(file->fd, offset, SEEK_SET) < 0)
+	if (lseek(file->fd, (off_t)offset, SEEK_SET) < 0)
 	{
 		int err = errno;
 		WLog_ERR(TAG, "failed to seek file: %s", strerror(err));

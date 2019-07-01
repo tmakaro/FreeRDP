@@ -50,10 +50,13 @@ struct rail_plugin
 	DWORD OpenHandle;
 	wMessageQueue* queue;
 	rdpContext* rdpcontext;
+	DWORD channelBuildNumber;
+	DWORD channelFlags;
+	RAIL_CLIENT_STATUS_ORDER clientStatus;
 };
 typedef struct rail_plugin railPlugin;
 
 RailClientContext* rail_get_client_interface(railPlugin* rail);
-UINT rail_send_channel_data(railPlugin* rail, void* data, size_t length);
+UINT rail_send_channel_data(railPlugin* rail, wStream* s);
 
 #endif /* FREERDP_CHANNEL_RAIL_CLIENT_MAIN_H */

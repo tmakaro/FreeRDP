@@ -3,11 +3,14 @@
 
 #include <freerdp/codec/clear.h>
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
 /* [MS-RDPEGFX] 4.1.1.1 Example 1 */
 static const BYTE PREPARE_CLEAR_EXAMPLE_1[] =
     "\x03\xc3\x11\x00";
 static const BYTE TEST_CLEAR_EXAMPLE_1[] =
     "\x03\xc3\x11\x00";
+#pragma GCC diagnostic pop
 
 /* [MS-RDPEGFX] 4.1.1.1 Example 2 */
 static const BYTE TEST_CLEAR_EXAMPLE_2[] =
@@ -71,6 +74,9 @@ fail:
 
 int TestFreeRDPCodecClear(int argc, char* argv[])
 {
+	WINPR_UNUSED(argc);
+	WINPR_UNUSED(argv);
+
 	/* Example 1 needs a filled glyph cache
 	if (!test_ClearDecompressExample(1, 8, 9, TEST_CLEAR_EXAMPLE_1,
 	                                 sizeof(TEST_CLEAR_EXAMPLE_1)))

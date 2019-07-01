@@ -633,6 +633,7 @@ out_fail:
 
 int fastpath_recv_updates(rdpFastPath* fastpath, wStream* s)
 {
+	int rc = -2;
 	rdpUpdate* update;
 
 	if (!fastpath || !fastpath->rdp || !fastpath->rdp->update || !s)
@@ -640,22 +641,26 @@ int fastpath_recv_updates(rdpFastPath* fastpath, wStream* s)
 
 	update = fastpath->rdp->update;
 
-	if (!IFCALLRESULT(TRUE, update->BeginPaint, update->context))
-		return -2;
+	if (!update_begin_paint(update))
+		goto fail;
 
 	while (Stream_GetRemainingLength(s) >= 3)
 	{
 		if (fastpath_recv_update_data(fastpath, s) < 0)
 		{
 			WLog_ERR(TAG, "fastpath_recv_update_data() fail");
-			return -3;
+			rc = -3;
+			goto fail;
 		}
 	}
 
-	if (!IFCALLRESULT(FALSE, update->EndPaint, update->context))
+	rc = 0;
+fail:
+
+	if (!update_end_paint(update))
 		return -4;
 
-	return 0;
+	return rc;
 }
 
 static BOOL fastpath_read_input_event_header(wStream* s, BYTE* eventFlags, BYTE* eventCode)
@@ -698,6 +703,9 @@ static BOOL fastpath_recv_input_event_scancode(rdpFastPath* fastpath, wStream* s
 
 	if ((eventFlags & FASTPATH_INPUT_KBDFLAGS_EXTENDED))
 		flags |= KBD_FLAGS_EXTENDED;
+
+	if ((eventFlags & FASTPATH_INPUT_KBDFLAGS_PREFIX_E1))
+		flags |= KBD_FLAGS_EXTENDED1;
 
 	return IFCALLRESULT(TRUE, input->KeyboardEvent, input, flags, code);
 }

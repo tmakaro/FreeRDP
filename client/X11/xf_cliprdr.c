@@ -450,7 +450,7 @@ static CLIPRDR_FORMAT* xf_cliprdr_get_raw_server_formats(xfClipboard* clipboard,
 static CLIPRDR_FORMAT* xf_cliprdr_get_formats_from_targets(
     xfClipboard* clipboard, UINT32* numFormats)
 {
-	int i;
+	unsigned long i;
 	Atom atom;
 	BYTE* data = NULL;
 	int format_property;
@@ -750,7 +750,10 @@ static void xf_cliprdr_append_target(xfClipboard* clipboard, Atom target)
 {
 	int i;
 
-	if (clipboard->numTargets >= ARRAYSIZE(clipboard->targets))
+	if (clipboard->numTargets < 0)
+		return;
+
+	if ((size_t)clipboard->numTargets >= ARRAYSIZE(clipboard->targets))
 		return;
 
 	for (i = 0; i < clipboard->numTargets; i++)
@@ -957,6 +960,8 @@ static BOOL xf_cliprdr_process_selection_clear(xfClipboard* clipboard,
 {
 	xfContext* xfc = clipboard->xfc;
 
+	WINPR_UNUSED(xevent);
+
 	if (xf_cliprdr_is_self_owned(clipboard))
 		return FALSE;
 
@@ -1155,6 +1160,8 @@ static UINT xf_cliprdr_monitor_ready(CliprdrClientContext* context,
 {
 	xfClipboard* clipboard = (xfClipboard*) context->custom;
 	UINT ret;
+
+	WINPR_UNUSED(monitorReady);
 
 	if ((ret = xf_cliprdr_send_client_capabilities(clipboard)) != CHANNEL_RC_OK)
 		return ret;
@@ -1380,6 +1387,13 @@ static UINT xf_cliprdr_server_format_data_response(CliprdrClientContext*
 			dstFormatId = ClipboardGetFormatId(clipboard->system, "text/html");
 			nullTerminated = TRUE;
 		}
+
+		if (strcmp(clipboard->data_format_name, "FileGroupDescriptorW") == 0)
+		{
+			srcFormatId = ClipboardGetFormatId(clipboard->system, "FileGroupDescriptorW");
+			dstFormatId = ClipboardGetFormatId(clipboard->system, "text/uri-list");
+			nullTerminated = FALSE;
+		}
 	}
 	else
 	{
@@ -1429,16 +1443,17 @@ static UINT xf_cliprdr_server_format_data_response(CliprdrClientContext*
 
 		if (!pDstData)
 		{
-			WLog_ERR(TAG, "failed to get clipboard data in format %s [source format %s]",
-			         ClipboardGetFormatName(clipboard->system, dstFormatId),
-			         ClipboardGetFormatName(clipboard->system, srcFormatId));
-			return ERROR_INTERNAL_ERROR;
+			WLog_WARN(TAG, "failed to get clipboard data in format %s [source format %s]",
+			          ClipboardGetFormatName(clipboard->system, dstFormatId),
+			          ClipboardGetFormatName(clipboard->system, srcFormatId));
+			return CHANNEL_RC_OK;
 		}
 
 		if (nullTerminated)
 		{
-			while (DstSize > 0 && pDstData[DstSize - 1] == '\0')
-				DstSize--;
+			BYTE* nullTerminator = memchr(pDstData, '\0', DstSize);
+			if (nullTerminator)
+				DstSize = nullTerminator - pDstData;
 		}
 	}
 
@@ -1558,6 +1573,8 @@ static UINT xf_cliprdr_clipboard_file_size_failure(wClipboardDelegate* delegate,
 {
 	CLIPRDR_FILE_CONTENTS_RESPONSE response = { 0 };
 	xfClipboard* clipboard = delegate->custom;
+	WINPR_UNUSED(errorCode);
+
 	response.msgFlags = CB_RESPONSE_FAIL;
 	response.streamId = request->streamId;
 	response.dwFlags = FILECONTENTS_SIZE;
@@ -1582,6 +1599,8 @@ static UINT xf_cliprdr_clipboard_file_range_failure(wClipboardDelegate* delegate
 {
 	CLIPRDR_FILE_CONTENTS_RESPONSE response = { 0 };
 	xfClipboard* clipboard = delegate->custom;
+	WINPR_UNUSED(errorCode);
+
 	response.msgFlags = CB_RESPONSE_FAIL;
 	response.streamId = request->streamId;
 	response.dwFlags = FILECONTENTS_RANGE;
@@ -1704,6 +1723,8 @@ xfClipboard* xf_clipboard_new(xfContext* xfc)
 	clipboard->incr_atom = XInternAtom(xfc->display, "INCR", FALSE);
 	clipboard->delegate = ClipboardGetDelegate(clipboard->system);
 	clipboard->delegate->custom = clipboard;
+	/* TODO: set up a filesystem base path for local URI */
+	/* clipboard->delegate->basePath = "file:///tmp/foo/bar/gaga"; */
 	clipboard->delegate->ClipboardFileSizeSuccess = xf_cliprdr_clipboard_file_size_success;
 	clipboard->delegate->ClipboardFileSizeFailure = xf_cliprdr_clipboard_file_size_failure;
 	clipboard->delegate->ClipboardFileRangeSuccess = xf_cliprdr_clipboard_file_range_success;
