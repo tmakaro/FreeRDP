@@ -6,7 +6,7 @@
  *
  * Myrtille: A native HTML4/5 Remote Desktop Protocol client
  *
- * Copyright(c) 2014-2019 Cedric Coste
+ * Copyright(c) 2014-2017 Cedric Coste
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -140,9 +140,6 @@ static void wf_Bitmap_Free(rdpContext* context, rdpBitmap* bitmap)
 		SelectObject(wf_bitmap->hdc, wf_bitmap->org_bitmap);
 		DeleteObject(wf_bitmap->bitmap);
 		DeleteDC(wf_bitmap->hdc);
-
-		_aligned_free(wf_bitmap->_bitmap.data);
-		wf_bitmap->_bitmap.data = NULL;
 	}
 }
 
@@ -238,35 +235,33 @@ static BOOL wf_Pointer_New(rdpContext* context, const rdpPointer* pointer)
 	}
 	else
 	{
-		UINT32 srcFormat;
 		BYTE* pdata = (BYTE*) _aligned_malloc(pointer->lengthAndMask, 16);
 
 		if (!pdata)
 			goto fail;
 
 		flip_bitmap(pointer->andMaskData, pdata, (pointer->width + 7) / 8,
-			pointer->height);
+		            pointer->height);
 		info.hbmMask = CreateBitmap(pointer->width, pointer->height, 1, 1, pdata);
 		_aligned_free(pdata);
+		pdata = (BYTE*) _aligned_malloc(pointer->width * pointer->height *
+		                                GetBitsPerPixel(gdi->dstFormat), 16);
 
-		/* currently color xorBpp is only 24 per [T128] section 8.14.3 */
-		srcFormat = gdi_get_pixel_format(pointer->xorBpp);
-
-		if (!srcFormat)
-			goto fail;
-
-		info.hbmColor = wf_create_dib((wfContext*)context, pointer->width, pointer->height, srcFormat, NULL, &pdata);
-
-		if (!info.hbmColor)
+		if (!pdata)
 			goto fail;
 
 		if (!freerdp_image_copy_from_pointer_data(pdata, gdi->dstFormat, 0, 0, 0,
-			pointer->width, pointer->height,
-			pointer->xorMaskData, pointer->lengthXorMask,
-			pointer->andMaskData, pointer->lengthAndMask, pointer->xorBpp, &gdi->palette))
+		        pointer->width, pointer->height,
+		        pointer->xorMaskData, pointer->lengthXorMask,
+		        pointer->andMaskData, pointer->lengthAndMask, pointer->xorBpp, &gdi->palette))
 		{
+			_aligned_free(pdata);
 			goto fail;
 		}
+
+		info.hbmColor = CreateBitmap(pointer->width, pointer->height, 1,
+		                             GetBitsPerPixel(gdi->dstFormat), pdata);
+		_aligned_free(pdata);
 	}
 
 	hCur = CreateIconIndirect(&info);
@@ -310,21 +305,7 @@ static BOOL wf_Pointer_Set(rdpContext* context, const rdpPointer* pointer)
 
 	if (hCur != NULL)
 	{
-		#pragma region Myrtille
-
-		if (wfc->context.settings->MyrtilleSessionId == NULL || wfc->context.settings->MyrtilleShowWindow)
-		{
-
-		#pragma endregion
-
 		SetCursor(hCur);
-
-		#pragma region Myrtille
-
-		}
-
-		#pragma endregion
-
 		wfc->cursor = hCur;
 	}
 	

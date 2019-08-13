@@ -1,5 +1,6 @@
 
 #define IDI_ICON1                       101
+#define IDB_BACKGROUND                  102
 #define IDB_MINIMIZE                    103
 #define IDB_MINIMIZE_ACT                104
 #define IDB_LOCK                        105

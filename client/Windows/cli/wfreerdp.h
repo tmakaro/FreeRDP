@@ -19,9 +19,9 @@
  * limitations under the License.
  */
 
-#ifndef FREERDP_CLIENT_WIN_FREERDP_H
-#define FREERDP_CLIENT_WIN_FREERDP_H
+#ifndef __WFREERDP_H
+#define __WFREERDP_H
 
 #include "wf_interface.h"
 
-#endif /* FREERDP_CLIENT_WIN_FREERDP_H */
+#endif

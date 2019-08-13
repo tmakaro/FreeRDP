@@ -16,8 +16,8 @@
  * limitations under the License.
  */
 
-#ifndef FREERDP_CLIENT_WIN_CHANNELS_H
-#define FREERDP_CLIENT_WIN_CHANNELS_H
+#ifndef __WF_CHANNELS_H
+#define __WF_CHANNELS_H
 
 #include <freerdp/freerdp.h>
 #include <freerdp/client/channels.h>
@@ -28,9 +28,9 @@
 
 #include "wf_client.h"
 
-void wf_OnChannelConnectedEventHandler(void* context,
+void wf_OnChannelConnectedEventHandler(rdpContext* context,
                                        ChannelConnectedEventArgs* e);
-void wf_OnChannelDisconnectedEventHandler(void* context,
+void wf_OnChannelDisconnectedEventHandler(rdpContext* context,
         ChannelDisconnectedEventArgs* e);
 
-#endif /* FREERDP_CLIENT_WIN_CHANNELS_H */
+#endif

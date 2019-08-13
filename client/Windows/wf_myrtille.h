@@ -8,7 +8,7 @@
  *
  * Myrtille: A native HTML4/5 Remote Desktop Protocol client
  *
- * Copyright(c) 2014-2019 Cedric Coste
+ * Copyright(c) 2014-2017 Cedric Coste
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,14 +31,11 @@ extern "C" {
 
 void wf_myrtille_start(wfContext* wfc);
 void wf_myrtille_stop(wfContext* wfc);
-HANDLE wf_myrtille_connect(wfContext* wfc);
-void wf_myrtille_send_screen(wfContext* wfc);
+void wf_myrtille_connect(wfContext* wfc);
 void wf_myrtille_send_region(wfContext* wfc, RECT region);
 void wf_myrtille_send_cursor(wfContext* wfc);
 void wf_myrtille_reset_clipboard(wfContext* wfc);
 void wf_myrtille_send_clipboard(wfContext* wfc, BYTE* data, UINT32 length);
-void wf_myrtille_send_printjob(wfContext* wfc, char* printJobName);
-void wf_myrtille_send_audio(wfContext* wfc, const BYTE* data, size_t size);
 
 #ifdef __cplusplus
 }

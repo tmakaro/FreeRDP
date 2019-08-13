@@ -17,17 +17,14 @@
  * limitations under the License.
  */
 
-#ifndef FREERDP_CLIENT_WIN_FLOATBAR_H
-#define FREERDP_CLIENT_WIN_FLOATBAR_H
+#ifndef __WF_FLOATBAR_H__
+#define __WF_FLOATBAR_H__
 
-#include <winpr/crt.h>
-
-typedef struct _FloatBar wfFloatBar;
+typedef struct _FloatBar FloatBar;
 typedef struct wf_context wfContext;
 
-wfFloatBar* wf_floatbar_new(wfContext* wfc, HINSTANCE window, DWORD flags);
-void wf_floatbar_free(wfFloatBar* floatbar);
+void floatbar_window_create(wfContext* wfc);
+int floatbar_show(FloatBar* floatbar);
+int floatbar_hide(FloatBar* floatbar);
 
-BOOL wf_floatbar_toggle_fullscreen(wfFloatBar* floatbar, BOOL fullscreen);
-
-#endif /* FREERDP_CLIENT_WIN_FLOATBAR_H */
+#endif

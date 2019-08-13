@@ -20,7 +20,6 @@
 #include "config.h"
 #endif
 
-#include <winpr/crt.h>
 #include <freerdp/log.h>
 #include <winpr/tchar.h>
 #include <winpr/print.h>

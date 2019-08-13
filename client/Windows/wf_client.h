@@ -8,7 +8,7 @@
  *
  * Myrtille: A native HTML4/5 Remote Desktop Protocol client
  *
- * Copyright(c) 2014-2019 Cedric Coste
+ * Copyright(c) 2014-2017 Cedric Coste
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,8 +23,8 @@
  * limitations under the License.
  */
 
-#ifndef FREERDP_CLIENT_WIN_INTERFACE_H
-#define FREERDP_CLIENT_WIN_INTERFACE_H
+#ifndef __WF_INTERFACE_H
+#define __WF_INTERFACE_H
 
 #include <winpr/windows.h>
 
@@ -82,10 +82,10 @@ struct wf_context
 
 	int offset_x;
 	int offset_y;
-	int fullscreen_toggle;
+	int fs_toggle;
 	int fullscreen;
 	int percentscreen;
-	WCHAR* window_title;
+	char window_title[64];
 	int client_x;
 	int client_y;
 	int client_width;
@@ -132,7 +132,7 @@ struct wf_context
 	void* clipboard;
 	CliprdrClientContext* cliprdr;
 
-	wfFloatBar* floatbar;
+	FloatBar* floatbar;
 
 	RailClientContext* rail;
 	wHashTable* railWindows;
@@ -143,12 +143,6 @@ struct wf_context
 
 	#pragma endregion
 };
-
-#pragma region Myrtille
-
-FREERDP_API DWORD WINAPI wf_client_thread(LPVOID lpParam);
-
-#pragma endregion
 
 /**
  * Client Interface
@@ -164,4 +158,4 @@ FREERDP_API void wf_size_scrollbars(wfContext* wfc, UINT32 client_width,
 }
 #endif
 
-#endif /* FREERDP_CLIENT_WIN_INTERFACE_H */
+#endif

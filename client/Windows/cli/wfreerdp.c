@@ -54,12 +54,13 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	RDP_CLIENT_ENTRY_POINTS clientEntryPoints;
 	int ret = 1;
 	int argc = 0, i;
-	LPWSTR* args = NULL;
+	LPWSTR* args;
 	LPWSTR cmd;
 	char** argv;
 	ZeroMemory(&clientEntryPoints, sizeof(RDP_CLIENT_ENTRY_POINTS));
 	clientEntryPoints.Size = sizeof(RDP_CLIENT_ENTRY_POINTS);
 	clientEntryPoints.Version = RDP_CLIENT_INTERFACE_VERSION;
+	RdpClientEntry(&clientEntryPoints);
 
 	#pragma region Myrtille
 
@@ -67,8 +68,6 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	//Sleep(10000);
 
 	#pragma endregion
-
-	RdpClientEntry(&clientEntryPoints);
 
 	context = freerdp_client_context_new(&clientEntryPoints);
 	if (!context)

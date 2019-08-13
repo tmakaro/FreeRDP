@@ -8,7 +8,7 @@
  *
  * Myrtille: A native HTML4/5 Remote Desktop Protocol client
  *
- * Copyright(c) 2014-2019 Cedric Coste
+ * Copyright(c) 2014-2017 Cedric Coste
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -149,10 +149,24 @@ static BOOL wf_begin_paint(rdpContext* context)
 {
 	HGDI_DC hdc;
 
+	#pragma region Myrtille
+
+	/*
+	the original FreeRDP code (commented below) results in the whole screen being repainted everytime a single change occurs on screen!
+	this isn't so much an issue when FreeRDP is used with a normal window because graphic cards are nowadays efficients,
+	but it becomes a serious problem when used with myrtille because it requires much more CPU/bandwidth to generate/send a fullscreen update each time a single change occurs (...)
+	it also breaks the core pattern which consist in sending and displaying only the changes
+	the fix below will be submitted as a pull request to the FreeRDP team
+	*/
+
+	//if (!context || !context->gdi || !context->gdi->hdc)
 	if (!context || !context->gdi || !context->gdi->primary || !context->gdi->primary->hdc)
 		return FALSE;
 
+	//hdc = context->gdi->hdc;
 	hdc = context->gdi->primary->hdc;
+
+	#pragma endregion
 
 	if (!hdc || !hdc->hwnd || !hdc->hwnd->invalid)
 		return FALSE;
@@ -199,23 +213,8 @@ static BOOL wf_desktop_resize(rdpContext* context)
 	else
 	{
 		wf_update_offset(wfc);
-
-		#pragma region Myrtille
-
-		// TODO: pull request to FreeRDP master
-		if (wfc->hwnd)
-		{
-		
-		#pragma endregion
-
 		GetWindowRect(wfc->hwnd, &rect);
 		InvalidateRect(wfc->hwnd, &rect, TRUE);
-		
-		#pragma region Myrtille
-
-		}
-
-		#pragma endregion
 	}
 
 	return TRUE;
@@ -257,21 +256,15 @@ static BOOL wf_pre_connect(freerdp* instance)
 	settings->OrderSupport[NEG_GLYPH_INDEX_INDEX] = TRUE;
 	settings->OrderSupport[NEG_FAST_INDEX_INDEX] = TRUE;
 	settings->OrderSupport[NEG_FAST_GLYPH_INDEX] = TRUE;
-	
-	#pragma region Myrtille
-
-	// gdi_polygon_sc: not implemented with /gdi:sw on Windows Server 2008 R2
-	// disabling it, along with gdi_polygon_cb, fixes some unexpected disconnect issues
-	// https://github.com/FreeRDP/FreeRDP/issues/3595
-	settings->OrderSupport[NEG_POLYGON_SC_INDEX] = FALSE;
-	settings->OrderSupport[NEG_POLYGON_CB_INDEX] = FALSE;
-
-	#pragma endregion
-
+	settings->OrderSupport[NEG_POLYGON_SC_INDEX] = TRUE;
+	settings->OrderSupport[NEG_POLYGON_CB_INDEX] = TRUE;
 	settings->OrderSupport[NEG_ELLIPSE_SC_INDEX] = FALSE;
 	settings->OrderSupport[NEG_ELLIPSE_CB_INDEX] = FALSE;
 	wfc->fullscreen = settings->Fullscreen;
-	wfc->fullscreen_toggle = settings->ToggleFullscreen;
+
+	if (wfc->fullscreen)
+		wfc->fs_toggle = 1;
+
 	desktopWidth = settings->DesktopWidth;
 	desktopHeight = settings->DesktopHeight;
 
@@ -325,23 +318,16 @@ static BOOL wf_pre_connect(freerdp* instance)
 	freerdp_set_param_uint32(settings, FreeRDP_KeyboardLayout,
 	                         (int) GetKeyboardLayout(0) & 0x0000FFFF);
 	PubSub_SubscribeChannelConnected(instance->context->pubSub,
-	                                 wf_OnChannelConnectedEventHandler);
+	                                 (pChannelConnectedEventHandler) wf_OnChannelConnectedEventHandler);
 	PubSub_SubscribeChannelDisconnected(instance->context->pubSub,
-	                                    wf_OnChannelDisconnectedEventHandler);
+	                                    (pChannelDisconnectedEventHandler) wf_OnChannelDisconnectedEventHandler);
 	return TRUE;
 }
 
 static void wf_add_system_menu(wfContext* wfc)
 {
-	HMENU hMenu;
+	HMENU hMenu = GetSystemMenu(wfc->hwnd, FALSE);
 	MENUITEMINFO item_info;
-
-	if (wfc->fullscreen && !wfc->fullscreen_toggle)
-	{
-		return;
-	}
-
-	hMenu = GetSystemMenu(wfc->hwnd, FALSE);
 	ZeroMemory(&item_info, sizeof(MENUITEMINFO));
 	item_info.fMask = MIIM_CHECKMARKS | MIIM_FTYPE | MIIM_ID | MIIM_STRING |
 	                  MIIM_DATA;
@@ -359,40 +345,6 @@ static void wf_add_system_menu(wfContext* wfc)
 	}
 }
 
-static WCHAR* wf_window_get_title(rdpSettings* settings)
-{
-	BOOL port;
-	WCHAR* windowTitle = NULL;
-	size_t size;
-	char* name;
-	WCHAR prefix[] = L"FreeRDP:";
-
-	if (!settings)
-		return NULL;
-
-	name = settings->ServerHostname;
-
-	if (settings->WindowTitle)
-	{
-		ConvertToUnicode(CP_UTF8, 0, settings->WindowTitle, -1, &windowTitle, 0);
-		return windowTitle;
-	}
-
-	port = (settings->ServerPort != 3389);
-	size = wcslen(name) + 16 + wcslen(prefix);
-	windowTitle = calloc(size, sizeof(WCHAR));
-
-	if (!windowTitle)
-		return NULL;
-
-	if (!port)
-		_snwprintf_s(windowTitle, size, _TRUNCATE, L"%s %S", prefix, name);
-	else
-		_snwprintf_s(windowTitle, size, _TRUNCATE, L"%s %S:%u", prefix, name, settings->ServerPort);
-
-	return windowTitle;
-}
-
 static BOOL wf_post_connect(freerdp* instance)
 {
 	rdpGdi* gdi;
@@ -400,6 +352,7 @@ static BOOL wf_post_connect(freerdp* instance)
 	rdpCache* cache;
 	wfContext* wfc;
 	rdpContext* context;
+	WCHAR lpWindowName[64];
 	rdpSettings* settings;
 	EmbedWindowEventArgs e;
 	const UINT32 format = PIXEL_FORMAT_BGRX32;
@@ -425,15 +378,19 @@ static BOOL wf_post_connect(freerdp* instance)
 	WLog_INFO(TAG, "GDI rendering: %s", settings->SoftwareGdi ? "software" : "hardware");
 	WLog_INFO(TAG, "Clipboard redirect: %s", settings->RedirectClipboard ? "on" : "off");
 
-	if (settings->MyrtilleSessionId == NULL || settings->MyrtilleShowWindow)
+	if (settings->MyrtilleSessionId == 0 || settings->MyrtilleShowWindow)
 	{
 
 	#pragma endregion
-	
-	wfc->window_title = wf_window_get_title(settings);
-	
-	if (!wfc->window_title)
-		return FALSE;
+
+	if (settings->WindowTitle != NULL)
+		_snwprintf(lpWindowName, ARRAYSIZE(lpWindowName), L"%S", settings->WindowTitle);
+	else if (settings->ServerPort == 3389)
+		_snwprintf(lpWindowName, ARRAYSIZE(lpWindowName), L"FreeRDP: %S",
+		           settings->ServerHostname);
+	else
+		_snwprintf(lpWindowName, ARRAYSIZE(lpWindowName), L"FreeRDP: %S:%u",
+		           settings->ServerHostname, settings->ServerPort);
 
 	if (settings->EmbeddedWindow)
 		settings->Decorations = FALSE;
@@ -448,7 +405,7 @@ static BOOL wf_post_connect(freerdp* instance)
 
 	if (!wfc->hwnd)
 	{
-		wfc->hwnd = CreateWindowEx((DWORD) NULL, wfc->wndClassName, wfc->window_title,
+		wfc->hwnd = CreateWindowEx((DWORD) NULL, wfc->wndClassName, lpWindowName,
 		                           dwStyle,
 		                           0, 0, 0, 0, wfc->hWndParent, NULL, wfc->hInstance, NULL);
 		SetWindowLongPtr(wfc->hwnd, GWLP_USERDATA, (LONG_PTR) wfc);
@@ -469,7 +426,7 @@ static BOOL wf_post_connect(freerdp* instance)
 	
 	#pragma region Myrtille
 
-	if (settings->MyrtilleSessionId == NULL || settings->MyrtilleShowWindow)
+	if (settings->MyrtilleSessionId == 0 || settings->MyrtilleShowWindow)
 	{
 
 	#pragma endregion
@@ -482,7 +439,7 @@ static BOOL wf_post_connect(freerdp* instance)
 	#pragma region Myrtille
 
 	// don't activate/focus the window if using myrtille
-	ShowWindow(wfc->hwnd, settings->MyrtilleSessionId == NULL ? SW_SHOWNORMAL : SW_SHOWNOACTIVATE);
+	ShowWindow(wfc->hwnd, settings->MyrtilleSessionId == 0 ? SW_SHOWNORMAL : SW_SHOWNOACTIVATE);
 
 	#pragma endregion
 
@@ -496,7 +453,7 @@ static BOOL wf_post_connect(freerdp* instance)
 	
 	instance->update->BeginPaint = wf_begin_paint;
 	instance->update->DesktopResize = wf_desktop_resize;
-	instance->update->EndPaint = wf_end_paint;
+	instance->update->EndPaint = wf_end_paint;	pointer_cache_register_callbacks(instance->update);
 	wf_register_pointer(context->graphics);
 
 	if (!settings->SoftwareGdi)
@@ -512,12 +469,13 @@ static BOOL wf_post_connect(freerdp* instance)
 
 	#pragma region Myrtille
 
-	if (settings->MyrtilleSessionId == NULL || settings->MyrtilleShowWindow)
+	if (settings->MyrtilleSessionId == 0 || settings->MyrtilleShowWindow)
 	{
 
 	#pragma endregion
-	
-	wfc->floatbar = wf_floatbar_new(wfc, wfc->hInstance, settings->Floatbar);
+
+	if (wfc->fullscreen)
+		floatbar_window_create(wfc);
 
 	#pragma region Myrtille
 
@@ -530,20 +488,6 @@ static BOOL wf_post_connect(freerdp* instance)
 
 static BOOL wf_post_disconnect(freerdp* instance)
 {
-	wfContext* wfc;
-
-	if (!instance || !instance->context || !instance->settings)
-		return FALSE;
-
-	wfc = (wfContext*) instance->context;
-	
-	#pragma region Myrtille
-	
-	if (wfc->window_title)
-	
-	#pragma endregion
-	
-	free(wfc->window_title);
 	return TRUE;
 }
 
@@ -562,7 +506,7 @@ static BOOL wf_authenticate_raw(freerdp* instance, const char* title,
 	#pragma region Myrtille
 
 	// disable the credentials popup when using myrtille in windowless mode
-	if (instance->settings->MyrtilleSessionId != NULL && !instance->settings->MyrtilleShowWindow)
+	if (instance->settings->MyrtilleSessionId != 0 && !instance->settings->MyrtilleShowWindow)
 		return FALSE;
 
 	#pragma endregion
@@ -664,7 +608,7 @@ static DWORD wf_verify_certificate(freerdp* instance,
 	WLog_INFO(TAG,
 	          "The above X.509 certificate could not be verified, possibly because you do not have "
 	          "the CA certificate in your certificate store, or the certificate has expired. "
-	          "Please look at the OpenSSL documentation on how to add a private CA to the store.\n");
+	          "Please look at the documentation on how to create local certificate store for a private CA.");
 	/* TODO: ask for user validation */
 #if 0
 	input_handle = GetStdHandle(STD_INPUT_HANDLE);
@@ -700,7 +644,49 @@ static DWORD wf_verify_changed_certificate(freerdp* instance,
 	return 0;
 }
 
-static DWORD WINAPI wf_input_thread(LPVOID arg)
+
+static BOOL wf_auto_reconnect(freerdp* instance)
+{
+	wfContext* wfc = (wfContext*)instance->context;
+	UINT32 num_retries = 0;
+	UINT32 max_retries = instance->settings->AutoReconnectMaxRetries;
+
+	/* Only auto reconnect on network disconnects. */
+	if (freerdp_error_info(instance) != 0)
+		return FALSE;
+
+	/* A network disconnect was detected */
+	WLog_ERR(TAG, "Network disconnect!");
+
+	if (!instance->settings->AutoReconnectionEnabled)
+	{
+		/* No auto-reconnect - just quit */
+		return FALSE;
+	}
+
+	/* Perform an auto-reconnect. */
+	for (;;)
+	{
+		/* Quit retrying if max retries has been exceeded */
+		if (num_retries++ >= max_retries)
+			return FALSE;
+
+		/* Attempt the next reconnect */
+		WLog_INFO(TAG,  "Attempting reconnect (%lu of %lu)", num_retries, max_retries);
+
+		if (freerdp_reconnect(instance))
+		{
+			return TRUE;
+		}
+
+		Sleep(5000);
+	}
+
+	WLog_ERR(TAG, "Maximum reconnect retries exceeded");
+	return FALSE;
+}
+
+static void* wf_input_thread(void* arg)
 {
 	int status;
 	wMessage message;
@@ -726,7 +712,7 @@ static DWORD WINAPI wf_input_thread(LPVOID arg)
 	}
 
 	ExitThread(0);
-	return 0;
+	return NULL;
 }
 
 static DWORD WINAPI wf_client_thread(LPVOID lpParam)
@@ -737,7 +723,6 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 	BOOL msg_ret;
 	int quit_msg;
 	DWORD nCount;
-	DWORD error;
 	HANDLE handles[64];
 	wfContext* wfc;
 	freerdp* instance;
@@ -745,43 +730,30 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 	rdpChannels* channels;
 	rdpSettings* settings;
 	BOOL async_input;
+	BOOL async_transport;
 	HANDLE input_thread;
 	instance = (freerdp*) lpParam;
 	context = instance->context;
 	wfc = (wfContext*) instance->context;
 
 	if (!freerdp_connect(instance))
+		return 0;
 
 	#pragma region Myrtille
 
-	{
-		if (context->settings->MyrtilleSessionId == NULL)
-		{
-			goto end;
-		}
-		else
-		{
-			error = freerdp_get_last_error(instance->context);
-			fclose(stdout);
-			fclose(stderr);
-			ExitProcess(error);
-		}
-	}
-
-	if (context->settings->MyrtilleSessionId != NULL)
-	{
-		wf_myrtille_send_screen(wfc);
-	}
+	wf_myrtille_connect(wfc);
 
 	#pragma endregion
 
 	channels = instance->context->channels;
 	settings = instance->context->settings;
 	async_input = settings->AsyncInput;
+	async_transport = settings->AsyncTransport;
 
 	if (async_input)
 	{
-		if (!(input_thread = CreateThread(NULL, 0, wf_input_thread,
+		if (!(input_thread = CreateThread(NULL, 0,
+		                                  (LPTHREAD_START_ROUTINE) wf_input_thread,
 		                                  instance, 0, NULL)))
 		{
 			WLog_ERR(TAG, "Failed to create async input thread.");
@@ -796,7 +768,7 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 		#pragma region Myrtille
 
 		// don't focus the window if using myrtille (even if show window is enabled)
-		if (settings->MyrtilleSessionId == NULL)
+		if (settings->MyrtilleSessionId == 0)
 		{
 
 		#pragma endregion
@@ -813,6 +785,7 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 
 		#pragma endregion
 
+		if (!async_transport)
 		{
 			DWORD tmp = freerdp_get_event_handles(context, &handles[nCount], 64 - nCount);
 
@@ -833,10 +806,11 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 			break;
 		}
 
+		if (!async_transport)
 		{
 			if (!freerdp_check_event_handles(context))
 			{
-				if (client_auto_reconnect(instance))
+				if (wf_auto_reconnect(instance))
 					continue;
 
 				WLog_ERR(TAG, "Failed to check FreeRDP file descriptor");
@@ -902,23 +876,9 @@ disconnect:
 	if (async_input)
 		CloseHandle(input_thread);
 
-	#pragma region Myrtille
-
-	if (context->settings->MyrtilleSessionId != NULL)
-	{
-		error = freerdp_get_last_error(instance->context);
-		fclose(stdout);
-		fclose(stderr);
-		ExitProcess(error);
-	}
-
-	#pragma endregion
-
-end:
-	error = freerdp_get_last_error(instance->context);
-	WLog_DBG(TAG, "Main thread exited with %" PRIu32, error);
-	ExitThread(error);
-	return error;
+	WLog_DBG(TAG, "Main thread exited.");
+	ExitThread(0);
+	return 0;
 }
 
 static DWORD WINAPI wf_keyboard_thread(LPVOID lpParam)
@@ -977,7 +937,7 @@ static int freerdp_client_focus_out(wfContext* wfc)
 	return 0;
 }
 
-int freerdp_client_set_window_size(wfContext* wfc, int width, int height)
+static int freerdp_client_set_window_size(wfContext* wfc, int width, int height)
 {
 	WLog_DBG(TAG,  "freerdp_client_set_window_size %d, %d", width, height);
 
@@ -1017,7 +977,7 @@ void wf_size_scrollbars(wfContext* wfc, UINT32 client_width,
 	{
 		SCROLLINFO si;
 		BOOL horiz = wfc->xScrollVisible;
-		BOOL vert = wfc->yScrollVisible;
+		BOOL vert = wfc->yScrollVisible;;
 
 		if (!horiz && client_width < wfc->context.settings->DesktopWidth)
 		{
@@ -1109,6 +1069,28 @@ static BOOL wfreerdp_client_global_init(void)
 {
 	WSADATA wsaData;
 
+	if (!getenv("HOME"))
+	{
+		#pragma region Myrtille
+
+		// if myrtille is running as a service, the freerdp process is running in non user interactive mode (windowless); thus, there is no user environment variables...
+		if (getenv("HOMEDRIVE") != NULL && getenv("HOMEPATH") != NULL)
+		{
+
+		#pragma endregion
+
+		char home[MAX_PATH * 2] = "HOME=";
+		strcat(home, getenv("HOMEDRIVE"));
+		strcat(home, getenv("HOMEPATH"));
+		_putenv(home);
+
+		#pragma region Myrtille
+
+		}
+
+		#pragma endregion
+	}
+
 	WSAStartup(0x101, &wsaData);
 #if defined(WITH_DEBUG) || defined(_DEBUG)
 	wf_create_console();
@@ -1152,12 +1134,9 @@ static int wfreerdp_client_start(rdpContext* context)
 	
 	#pragma region Myrtille
 
-	if (context->settings->MyrtilleSessionId != NULL)
-	{
-		wf_myrtille_start(wfc);
-	}
+	wf_myrtille_start(wfc);
 
-	if (context->settings->MyrtilleSessionId == NULL || context->settings->MyrtilleShowWindow)
+	if (context->settings->MyrtilleSessionId == 0 || context->settings->MyrtilleShowWindow)
 	{
 
 	#pragma endregion
@@ -1193,23 +1172,10 @@ static int wfreerdp_client_start(rdpContext* context)
 
 	}
 
-	if (context->settings->MyrtilleSessionId == NULL)
-	{
-
 	#pragma endregion
 	
 	wfc->thread = CreateThread(NULL, 0, wf_client_thread, (void*) instance, 0,
 	                           &wfc->mainThreadId);
-
-	#pragma region Myrtille
-
-	}
-	else
-	{
-		wfc->thread = wf_myrtille_connect(wfc);
-	}
-
-	#pragma endregion
 
 	if (!wfc->thread)
 		return -1;
@@ -1232,7 +1198,7 @@ static int wfreerdp_client_stop(rdpContext* context)
 
 	#pragma region Myrtille
 
-	if (context->settings->MyrtilleSessionId == NULL || context->settings->MyrtilleShowWindow)
+	if (context->settings->MyrtilleSessionId == 0 || context->settings->MyrtilleShowWindow)
 	{
 
 	#pragma endregion
@@ -1250,31 +1216,12 @@ static int wfreerdp_client_stop(rdpContext* context)
 
 	}
 
-	if (context->settings->MyrtilleSessionId != NULL)
-	{
-		wf_myrtille_stop(wfc);
-	}
+	wf_myrtille_stop(wfc);
 
 	#pragma endregion
 
 	return 0;
 }
-
-#pragma region Myrtille
-
-static void wfreerdp_client_print(rdpContext* context, char* printJobName)
-{
-	wfContext* wfc = (wfContext*)context;
-	wf_myrtille_send_printjob(wfc, printJobName);
-}
-
-static void wfreerdp_client_audio(rdpContext* context, const BYTE* data, size_t size)
-{
-	wfContext* wfc = (wfContext*)context;
-	wf_myrtille_send_audio(wfc, data, size);
-}
-
-#pragma endregion
 
 int RdpClientEntry(RDP_CLIENT_ENTRY_POINTS* pEntryPoints)
 {
@@ -1287,13 +1234,5 @@ int RdpClientEntry(RDP_CLIENT_ENTRY_POINTS* pEntryPoints)
 	pEntryPoints->ClientFree = wfreerdp_client_free;
 	pEntryPoints->ClientStart = wfreerdp_client_start;
 	pEntryPoints->ClientStop = wfreerdp_client_stop;
-
-	#pragma region Myrtille
-
-	pEntryPoints->ClientPrint = wfreerdp_client_print;
-	pEntryPoints->ClientAudio = wfreerdp_client_audio;
-
-	#pragma endregion
-
 	return 0;
 }
